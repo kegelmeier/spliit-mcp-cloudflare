@@ -2,41 +2,62 @@
 
 ## Treat group links as credentials
 
-Possession of a Spliit group link grants access to that group. Never commit a
-real group URL or ID. Do not include one in a bug report, log excerpt,
-screenshot, test fixture, pull request, or MCP prompt. The examples in this
-repository are placeholders.
+Possession of a Spliit group link grants group access. Never commit a real URL,
+group ID, participant ID, bearer token, encryption key, draft ID, or private
+group content. Do not put those values in prompts, issues, logs, screenshots,
+tests, pull requests, or command arguments.
 
-If a group link is exposed, create a replacement group in Spliit and migrate
-the data; Spliit group IDs cannot be rotated independently. If the MCP bearer
-token is exposed, replace the `MCP_AUTH_TOKEN` Worker secret immediately.
+If a group link is exposed, create a replacement group and migrate the data;
+the group ID cannot be rotated independently. If a bearer token is exposed,
+replace that token in Cloudflare and its clients immediately.
+
+## Secret roles
+
+- `MCP_AUTH_TOKEN` authorizes MCP use.
+- `ADMIN_TOKEN` authorizes group setup and removal. It must be different.
+- `DATA_ENCRYPTION_KEY` encrypts durable records. Losing it makes stored groups
+  and drafts unreadable; changing it without a migration has the same effect.
+- `SPLIIT_GROUPS_JSON` is imported once for upgrades. New installs use `[]`.
+
+Use unique random 32-byte values for the first three roles. Store them in a
+password manager or secret store. Worker secrets are encrypted by Cloudflare,
+but the Worker can read them at runtime by design.
 
 ## Deployment checklist
 
-1. Keep `WRITES_ENABLED` set to `"false"` until read-only behavior is verified.
-2. Use a unique token with at least 32 random characters.
-3. Store `MCP_AUTH_TOKEN` and `SPLIIT_GROUPS_JSON` as Worker secrets. For a
-   first deployment, use Wrangler's `deploy --secrets-file` support.
-4. Set `ALLOWED_HOSTNAMES` after the deployment hostname is known.
-5. Do not enable Cloudflare request tracing; Spliit tRPC query URLs contain the
-   group ID.
-6. Keep dependencies and Wrangler current, and run `npm run check` before each
-   deployment.
-7. Give the bearer token only to MCP clients you trust to invoke the tools.
+1. Keep `WRITES_ENABLED` `false` until reads are verified.
+2. Generate distinct MCP/admin tokens and one 64-character hexadecimal key.
+3. Upload all required values through a mode-0600 secrets file or Cloudflare's
+   secret UI; never plaintext variables.
+4. Keep `ALLOWED_SPLIIT_HOSTNAMES` as narrow as possible.
+5. Add links only through `/setup`, over HTTPS, on the expected Worker host.
+6. Do not enable request tracing; upstream query URLs contain group IDs.
+7. Run `npm run check` before deployment.
+8. Give each token only to software or people that need its specific role.
 
-Cloudflare Worker secrets are encrypted at rest, but the Worker can read them
-at runtime by design. The configured Spliit service receives its group ID on
-each API call.
+The setup page uses no third-party assets, does not persist the admin token, and
+sets CSP, anti-framing, no-referrer, and no-store headers. The admin API validates
+and size-limits JSON, accepts only HTTPS group URLs, rejects redirects through
+the upstream client, and restricts outbound hosts.
+
+## Write safety
+
+Preparation does not mutate Spliit. It stores an expiring encrypted draft bound
+to one group. Commit atomically claims it before contacting Spliit. Successful
+drafts return the stored result on replay. Failed upstream requests release the
+claim; ambiguous interrupted commits remain locked to avoid automatic duplicate
+expenses. Always inspect the preview and approve the commit separately.
+
+Spliit's unofficial create procedure does not expose an idempotency key. No
+system can prove exactly-once delivery after every possible network failure;
+the locked ambiguous state deliberately favors avoiding duplicates.
 
 ## Reporting a vulnerability
 
-Do not open a public issue containing secrets or reproduction data from a real
-group. Use the repository's **Security → Report a vulnerability** flow. If
-private vulnerability reporting is unavailable, open a public issue containing
-only a request for a private contact channel—never include vulnerability details
-or real credentials in that issue.
+Do not open a public issue containing real credentials or group data. Use the
+repository's **Security → Report a vulnerability** flow. If private reporting is
+unavailable, request a private contact channel without disclosing details.
 
 ## Supported versions
 
-Until a stable release exists, only the latest commit on the default branch is
-supported.
+Only the latest stable major version and current default branch are supported.

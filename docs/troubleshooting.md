@@ -1,75 +1,103 @@
 # Troubleshooting
 
-## Deployment says required secrets are missing
+## Required secrets are missing
 
-The first deployment must upload the two required secrets with the code:
+Version 1 requires `MCP_AUTH_TOKEN`, `ADMIN_TOKEN`, `DATA_ENCRYPTION_KEY`, and
+`SPLIIT_GROUPS_JSON`. New installs use `[]` for the last value. The first deploy
+can upload all four atomically:
 
 ```bash
 npx wrangler deploy --secrets-file .dev.vars
 ```
 
-Confirm `.dev.vars` contains both `MCP_AUTH_TOKEN` and `SPLIIT_GROUPS_JSON`, is
-ignored by Git, and is not printed to the terminal. For an existing Worker,
-`npx wrangler secret list` shows secret names but not values.
+Both tokens need at least 32 characters and must differ. The encryption key must
+be exactly 64 hexadecimal characters. `wrangler secret list` shows names, not
+values.
 
-## `/healthz` returns an error
+## `/healthz` is unhealthy
 
-The endpoint validates configuration without contacting Spliit. Common causes:
+Common causes:
 
-- bearer token shorter than 32 characters;
-- malformed `SPLIIT_GROUPS_JSON`;
-- duplicate or invalid aliases;
-- a non-HTTPS group URL;
-- more than 20 groups;
-- a Worker hostname blocked by `ALLOWED_HOSTNAMES`.
+- missing, short, or identical bearer tokens;
+- malformed encryption key;
+- malformed legacy import JSON;
+- an imported group host absent from `ALLOWED_SPLIIT_HOSTNAMES`;
+- invalid timeout, draft TTL, or hostname allowlist.
 
-Correct the relevant Worker secret or configuration and redeploy. Do not share
-the health response together with private configuration values.
+Health does not contact Spliit or reveal the failing value.
 
-## MCP returns 401 Unauthorized
+## `/mcp` or `/admin` returns 401
 
-- Confirm the client uses the `/mcp` path, not only the Worker root.
-- Confirm it sends `Authorization: Bearer <token>` on every MCP request.
-- Make sure the client and Worker use the same token.
-- Restart the client after changing its environment.
-- If uncertain, rotate the token instead of copying it through extra tools.
+- `/mcp` uses `MCP_AUTH_TOKEN`.
+- `/admin/groups` and `/setup` actions use `ADMIN_TOKEN`.
+- Both use `Authorization: Bearer` and the exact Worker host.
+- Restart the MCP client after changing its environment.
 
-## MCP returns 403 Forbidden
+If uncertain, rotate the affected token. Token rotation does not change the
+stable `primary` Durable Object. Never rotate the data key as a token fix.
 
-The request hostname does not match `ALLOWED_HOSTNAMES`. Use the exact deployed
-hostname or clear the allowlist and redeploy while diagnosing.
+## Setup rejects a group hostname
 
-## A group alias is unknown
+Only exact hostnames in `ALLOWED_SPLIIT_HOSTNAMES` are permitted. The default is
+`spliit.app`. Add an explicit self-hosted name in `wrangler.jsonc`, run checks,
+and redeploy. Do not use a broad proxy host as a shortcut.
 
-Aliases are case-sensitive after normalization and must match the configured
-entry. Call `list_groups` to see safe aliases. Never use or ask the agent to
-return a raw group ID.
+## Setup cannot reach Spliit
 
-## Spliit requests fail upstream
+Confirm the group opens in a browser and its server still exposes Spliit's tRPC
+interface. Redirects are rejected. Sanitized errors intentionally omit the
+private URL and group ID.
 
-The MCP server uses Spliit's existing unofficial tRPC interface. Check that the
-group still opens in Spliit's web application. An upstream Spliit deployment
-can change procedures or response shapes; check this repository for updates.
-Sanitized MCP errors intentionally omit the private upstream URL and group ID.
+## No groups appear after upgrading
 
-## A write tool is missing
+The import happens only once. If the first authenticated version-1 request used
+`SPLIIT_GROUPS_JSON=[]`, add each group through `/setup`. If the old JSON was
+present, verify its hosts were allowed and the Worker was healthy before that
+first request. Never paste the old secret into a ticket or chat.
 
-This is expected by default. `create_expense` and `create_reimbursement` are
-registered only when `WRITES_ENABLED` is `"true"` at deployment time. Review
-their behavior and enable them deliberately; do not enable writes merely to
+## A group is not active
+
+Call `list_groups`, then `select_group` with a returned alias. Reads do not
+accept group arguments in version 1. Selection is shared across conversations
+that use this personal Worker.
+
+## Write tools are missing
+
+This is the safe default. They are registered only with
+`WRITES_ENABLED="true"`. Review [Security](../SECURITY.md#write-safety), change
+the variable, run `npm run check`, and redeploy. Do not enable writes merely to
 test connectivity.
 
-## Cloudflare build fails after dashboard deployment
+## A draft expired
 
-- Confirm the Worker name matches the `name` in `wrangler.jsonc`.
-- Use `npm ci` and `npx wrangler deploy` as the install/deploy commands.
-- Confirm both required secrets were supplied in the deployment form.
-- Open the Workers Builds log, but redact any private values before sharing it.
+Prepare it again. `DRAFT_TTL_SECONDS` defaults to ten minutes and accepts 60 to
+3,600 seconds. Updating/removing its group also invalidates that group's drafts.
+
+## A draft reports an ambiguous commit
+
+The Worker claimed the draft but could not safely prove completion, commonly
+because execution was interrupted. Inspect Spliit for the expense before doing
+anything else. The locked draft will not retry automatically. If no expense
+exists, prepare a new draft; if it exists, do not create another.
+
+## Stored state cannot be decrypted
+
+The deployed `DATA_ENCRYPTION_KEY` no longer matches the key that encrypted the
+registry. Restore the original key from the password manager. There is no
+automatic key-rotation path. If it is lost, stored links must be added again
+through setup under a new empty deployment/state migration strategy.
+
+## Build fails after UI deployment
+
+- Use Node.js 22+, `npm ci`, and `npx wrangler deploy`.
+- Confirm all four secret names are present.
+- Confirm `wrangler.jsonc` still contains the `SpliitState` binding and `v1`
+  SQLite migration.
+- Redact secrets and private data before sharing build output.
 
 ## A secret was exposed
 
-If the MCP token was exposed, replace `MCP_AUTH_TOKEN` in Cloudflare and every
-client immediately. If a Spliit group link or group ID was exposed, the ID
-cannot be rotated independently; create a replacement group and migrate the
-data. Remove the secret from public history, logs, screenshots, and issues, but
-assume it was copied before removal.
+Rotate exposed MCP/admin tokens immediately. If a data key was exposed, take
+the Worker offline and plan an explicit decrypt/re-encrypt migration; simply
+changing it makes records unreadable. A leaked Spliit group ID cannot be rotated
+independently, so replace the group and migrate its data.

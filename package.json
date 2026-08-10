@@ -1,7 +1,7 @@
 {
   "name": "spliit-mcp-cloudflare",
-  "version": "0.1.0",
-  "description": "Unofficial, secure, single-user Spliit MCP server for Cloudflare Workers",
+  "version": "1.0.0",
+  "description": "Unofficial, secure, stateful Spliit MCP server for Cloudflare Workers",
   "license": "MIT",
   "private": true,
   "repository": {
@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",
-    "@cloudflare/workers-types": "5.20260809.1",
+    "@cloudflare/workers-types": "5.20260810.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "typescript": "latest",
     "vitest": "latest",
@@ -46,8 +46,14 @@
       "MCP_AUTH_TOKEN": {
         "description": "Generate a unique bearer token with at least 32 random characters. Save it in your password manager; MCP clients need the same value."
       },
+      "ADMIN_TOKEN": {
+        "description": "Generate a second unique bearer token for the protected group setup UI. It must differ from MCP_AUTH_TOKEN."
+      },
+      "DATA_ENCRYPTION_KEY": {
+        "description": "Generate exactly 32 random bytes as 64 hexadecimal characters. This encrypts group credentials and write drafts inside the Durable Object."
+      },
       "SPLIIT_GROUPS_JSON": {
-        "description": "A one-line JSON array of group aliases and full Spliit group URLs. Group URLs grant access and must remain secret. See README Configuration."
+        "description": "Import-only migration secret. Existing installs keep their current JSON; new installs use [] and add groups at /setup after deployment."
       }
     }
   }

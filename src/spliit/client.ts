@@ -72,7 +72,7 @@ export class SpliitClient {
     try {
       const headers = new Headers(init.headers);
       headers.set("Accept", "application/json");
-      headers.set("User-Agent", "spliit-mcp-cloudflare/0.1");
+      headers.set("User-Agent", "spliit-mcp-cloudflare/1.0");
       response = await this.fetcher(url, {
         ...init,
         headers,

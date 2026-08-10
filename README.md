@@ -3,138 +3,145 @@
 [![CI](https://github.com/kegelmeier/spliit-mcp-cloudflare/actions/workflows/ci.yml/badge.svg)](https://github.com/kegelmeier/spliit-mcp-cloudflare/actions/workflows/ci.yml)
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/kegelmeier/spliit-mcp-cloudflare)
 
-An unofficial, security-focused MCP server that lets an AI assistant read and,
-when explicitly enabled, create data in [Spliit](https://spliit.app). It runs as
-a stateless Cloudflare Worker and is designed to fit the Workers Free plan for
-personal use.
+An unofficial, security-focused MCP server for [Spliit](https://spliit.app).
+One remote MCP connection can remember many groups, keep one active group, and
+read or deliberately create Spliit data. It is designed for a personal
+Cloudflare Worker deployment.
 
-A normal Spliit group link is all it needs. It uses Spliit's existing interface;
-no modified Spliit backend, Spliit account, or separate database is required.
+A normal Spliit group link is sufficient. No modified Spliit backend or Spliit
+account is required.
 
 > [!IMPORTANT]
-> A Spliit group link grants access to the group. Treat it like a password. Put
-> it only in a Cloudflare Worker secret, never in source control, screenshots,
-> issues, logs, or prompts sent to an untrusted service.
+> A Spliit group link grants access to its group. Add links only through the
+> protected `/setup` page. Never paste a real link into an AI prompt, commit,
+> issue, screenshot, or log.
+
+## Version 1 breaking change
+
+Version 1 replaces per-call group arguments with a durable active-group model:
+
+- `list_groups` lists remembered aliases and the active alias;
+- `select_group` changes the active group for later reads and preparations;
+- read tools no longer accept a `group` argument;
+- direct create tools are replaced by `prepare_expense`,
+  `prepare_reimbursement`, and `commit_draft`;
+- group credentials and drafts are encrypted inside a SQLite Durable Object;
+- the old `SPLIIT_GROUPS_JSON` secret is imported once for a safe upgrade.
+
+Prepared drafts contain an immutable encrypted copy of their target. Selecting
+another group before `commit_draft` cannot redirect the write.
 
 ## Install with an AI coding agent (recommended)
 
-Give your agent access to a terminal and a browser, then paste this prompt:
+Give a trusted coding agent terminal and browser access, then paste:
 
 ```text
 Install Spliit MCP from https://github.com/kegelmeier/spliit-mcp-cloudflare
 into my Cloudflare account. Read AGENTS.md and docs/agentic-install.md completely
-before acting. Keep writes disabled. Never print, log, commit, or place my Spliit
-group URL or MCP bearer token in a command argument. Use Wrangler's interactive
-Cloudflare login. Ask me only for a safe group alias, the Spliit group URL, and
-optionally my participant ID. Generate a new 32-byte random MCP bearer token,
-store both required values as Cloudflare Worker secrets, deploy, validate
-/healthz and the read-only MCP tools, and configure my MCP client using an
-environment-backed bearer token. Stop before enabling writes.
+before acting. Keep writes disabled. Never ask me to paste a Spliit group URL
+into chat, a command argument, source control, or logs. Use Wrangler's
+interactive Cloudflare login. Generate separate 32-byte MCP and admin tokens
+and a 32-byte data-encryption key without displaying them. Deploy with an empty
+SPLIIT_GROUPS_JSON bootstrap value, validate /healthz and authentication, then
+give me the /setup URL so I can add group links privately in my browser.
+Configure one Streamable HTTP MCP connection with an environment-backed bearer
+token. Stop before enabling writes.
 ```
 
-The detailed agent runbook includes security boundaries, success criteria, and
-recovery steps: [Agentic installation](docs/agentic-install.md).
+Existing 0.x deployments need the upgrade variant in
+[Agentic installation](docs/agentic-install.md#upgrade-an-existing-0x-deployment).
 
 ## Other installation paths
 
-- [Terminal installation](docs/terminal-install.md) — clone, validate, deploy,
-  and connect using explicit commands.
-- [Cloudflare and MCP client UI](docs/ui-install.md) — use the deployment button
-  and dashboard forms without a local development environment.
-- [MCP client setup](docs/mcp-clients.md) — Codex configuration plus a generic
-  Streamable HTTP client checklist.
-- [Troubleshooting](docs/troubleshooting.md) — common authentication,
-  configuration, upstream, and deployment errors.
+- [Terminal installation](docs/terminal-install.md)
+- [Cloudflare and MCP client UI](docs/ui-install.md)
+- [MCP client setup](docs/mcp-clients.md)
+- [Troubleshooting](docs/troubleshooting.md)
 
-## Available tools
+## Tools
 
 | Tool | Default | Purpose |
 | --- | --- | --- |
-| `list_groups` | Read-only | List safe aliases without exposing group links or IDs |
-| `get_group` | Read-only | Read group metadata and participants |
+| `list_groups` | Read-only | List aliases and show which one is active |
+| `select_group` | State change | Remember the active alias |
+| `get_group` | Read-only | Read active-group metadata and participants |
 | `get_balances` | Read-only | Read balances and suggested reimbursements |
-| `list_expenses` | Read-only | Page and filter expenses |
-| `get_expense` | Read-only | Read one expense in detail |
-| `list_categories` | Read-only | Read the Spliit server's categories |
-| `list_activities` | Read-only | Read recent group activity |
-| `create_expense` | Opt-in | Create an evenly split expense |
-| `create_reimbursement` | Opt-in | Record a reimbursement |
+| `list_expenses` | Read-only | Page and filter active-group expenses |
+| `get_expense` | Read-only | Read one active-group expense |
+| `list_categories` | Read-only | Read categories from the active Spliit host |
+| `list_activities` | Read-only | Read recent active-group activity |
+| `prepare_expense` | Opt-in | Validate and store an expiring group-bound draft |
+| `prepare_reimbursement` | Opt-in | Validate and store an expiring group-bound draft |
+| `commit_draft` | Opt-in | Commit a prepared draft exactly to its bound group |
 
-Write tools are not registered unless `WRITES_ENABLED` is changed to `"true"`
-and the Worker is redeployed. There are no update or delete tools.
+Write tools are absent unless `WRITES_ENABLED` is set to `"true"` and the
+Worker is redeployed. There are no update or delete tools.
 
 ## Configuration
 
-Two encrypted Worker secrets are required:
+Four encrypted Worker secrets are required:
 
 | Name | Purpose |
 | --- | --- |
-| `MCP_AUTH_TOKEN` | A unique random bearer token with at least 32 characters |
-| `SPLIIT_GROUPS_JSON` | A JSON array containing up to 20 group configurations |
+| `MCP_AUTH_TOKEN` | Bearer token used by the MCP client; at least 32 characters |
+| `ADMIN_TOKEN` | Different bearer token used only by `/setup` |
+| `DATA_ENCRYPTION_KEY` | Exactly 64 hexadecimal characters used for AES-256-GCM |
+| `SPLIIT_GROUPS_JSON` | Import-only 0.x migration value; use `[]` on a new install |
 
-Example structure—replace every placeholder and keep the real value secret:
+Do not change `DATA_ENCRYPTION_KEY` after groups are stored. There is no
+automatic key-rotation migration in version 1.
 
-```json
-[
-  {
-    "alias": "holiday",
-    "url": "https://spliit.app/groups/REPLACE_WITH_GROUP_ID",
-    "participantId": "OPTIONAL_PARTICIPANT_ID"
-  }
-]
-```
-
-`participantId` is optional for reading. It identifies you in activity records
-and is the default payer for `create_expense`. After deployment, `get_group`
-returns the participant IDs. Multiple groups may use the same or different
-Spliit hosts.
-
-Non-secret variables are defined in `wrangler.jsonc`:
+Non-secret variables live in `wrangler.jsonc`:
 
 | Name | Default | Meaning |
 | --- | --- | --- |
-| `WRITES_ENABLED` | `false` | Registers the two write tools when `true` |
-| `SPLIIT_TIMEOUT_MS` | `15000` | Upstream timeout, from 1,000 to 30,000 ms |
-| `ALLOWED_HOSTNAMES` | empty | Optional comma-separated Worker hostname allowlist |
+| `WRITES_ENABLED` | `false` | Registers prepare and commit tools when true |
+| `SPLIIT_TIMEOUT_MS` | `15000` | Upstream timeout, 1,000–30,000 ms |
+| `DRAFT_TTL_SECONDS` | `600` | Draft lifetime, 60–3,600 seconds |
+| `ALLOWED_SPLIIT_HOSTNAMES` | `spliit.app` | Exact outbound Spliit hostname allowlist |
+| `ALLOWED_HOSTNAMES` | empty | Optional inbound Worker hostname allowlist |
 
-## Security model
+Self-hosted Spliit installations must be explicitly added to
+`ALLOWED_SPLIIT_HOSTNAMES` before their links can be stored.
 
-- Every `/mcp` request requires the separate MCP bearer token.
-- Spliit group URLs are stored only as encrypted Worker secrets.
-- MCP tools accept safe aliases; group links and IDs are never returned.
-- Only HTTPS Spliit URLs are accepted.
-- Browser CORS is disabled, responses are non-cacheable, and upstream errors
-  are sanitized.
-- Request tracing is intentionally disabled because Spliit's tRPC query URLs
-  contain the group ID.
-- No D1, KV, R2, Durable Objects, or other persistent storage is used.
+## Security and persistence
 
-Cloudflare executes the Worker and the configured Spliit host receives the
-group ID on each upstream request. This design does not hide those values from
-the infrastructure required to process them. Read [SECURITY.md](SECURITY.md)
-before deployment.
+- `/mcp` and `/admin` use separate bearer tokens.
+- The MCP client receives aliases, never stored group URLs or IDs.
+- Group records, draft payloads, and completed draft results are encrypted with
+  AES-256-GCM and record-specific associated data before SQLite persistence.
+- The setup page is same-origin, non-cacheable, frame-protected, and stores the
+  admin token only in the current page's memory.
+- One-time draft claims prevent concurrent duplicate commits. A completed draft
+  is replay-safe. An interrupted ambiguous commit remains locked so the user can
+  verify Spliit instead of risking an automatic duplicate.
+- MCP transport requests remain stateless; only application state is durable.
+- Request tracing is intentionally disabled because Spliit tRPC URLs can contain
+  group IDs.
+
+Read [SECURITY.md](SECURITY.md) before deployment.
 
 ## Limits and cost
 
-The application limits are 20 configured groups, 50 records per page, a 2 MiB
-maximum upstream response, and a configurable 1–30 second Spliit timeout.
+There is no application-level group-count cap. Practical capacity and cost are
+bounded by Cloudflare Durable Objects storage/request limits and the Spliit
+server. Expense/activity pages remain limited to 50 records and upstream
+responses to 2 MiB.
 
-Cloudflare currently documents 100,000 requests per day and 10 ms of CPU time
-per HTTP request on Workers Free. Waiting for Spliit over the network does not
-count as CPU time. Verify the current [Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/)
-and [platform limits](https://developers.cloudflare.com/workers/platform/limits/)
-before relying on those figures. Normal personal use should be far below the
-request allowance.
+The design is intended to fit ordinary personal use on Cloudflare's Free plan,
+but platform limits can change. Check current [Durable Objects pricing](https://developers.cloudflare.com/durable-objects/platform/pricing/),
+[Workers pricing](https://developers.cloudflare.com/workers/platform/pricing/),
+and [platform limits](https://developers.cloudflare.com/workers/platform/limits/).
 
 ## Compatibility and non-goals
 
-- Spliit has no account API that discovers all of a person's groups. Each group
-  is configured explicitly from its link.
-- The Worker calls Spliit's existing, unofficial tRPC procedures. An upstream
-  Spliit change may require an update here.
-- Attachments, recurring-expense creation, custom split modes, expense updates,
-  and expense deletion are intentionally omitted.
-- This project is not affiliated with or endorsed by Spliit or Cloudflare.
+- Spliit has no account API for discovering every group; each link is added once
+  through setup.
+- The Worker calls Spliit's unofficial tRPC procedures. Upstream changes can
+  require an update.
+- Attachments, recurring creation, custom splits, updates, and deletion are not
+  implemented.
+- This project is not affiliated with Spliit or Cloudflare.
 
 ## Development
 
@@ -145,9 +152,8 @@ npm run dev
 npm run check
 ```
 
-Replace the placeholders in `.dev.vars` before running locally. The populated
-file is ignored by Git. See [CONTRIBUTING.md](CONTRIBUTING.md) for project rules
-and [docs/architecture.md](docs/architecture.md) for the request flow.
+Use placeholders only in tracked files and tests. See [CONTRIBUTING.md](CONTRIBUTING.md)
+and [Architecture](docs/architecture.md).
 
 ## License
 

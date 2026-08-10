@@ -1,19 +1,21 @@
 import { z } from "zod";
 
-const configuredGroupSchema = z.object({
-  alias: z
-    .string()
-    .min(1)
-    .max(40)
-    .regex(/^[a-z][a-z0-9_-]*$/, "Use a lowercase alias beginning with a letter"),
+export const aliasSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .min(1)
+  .max(40)
+  .regex(/^[a-z][a-z0-9_-]*$/, "Use a lowercase alias beginning with a letter");
+
+export const configuredGroupInputSchema = z.object({
+  alias: aliasSchema,
   url: z.url(),
-  participantId: z.string().min(1).max(200).optional()
+  participantId: z.string().trim().min(1).max(200).optional()
 });
 
 const configuredGroupsSchema = z
-  .array(configuredGroupSchema)
-  .min(1, "Configure at least one Spliit group")
-  .max(20, "At most 20 groups can be configured")
+  .array(configuredGroupInputSchema)
   .superRefine((groups, context) => {
     const aliases = new Set<string>();
     for (const [index, group] of groups.entries()) {
@@ -55,32 +57,57 @@ export function parseConfiguredGroups(secret: string): ConfiguredGroup[] {
     );
   }
 
-  return parsed.data.map((group) => {
-    const reference = parseGroupUrl(group.url);
-    return {
-      alias: group.alias,
-      groupId: reference.groupId,
-      ...(group.participantId === undefined
-        ? {}
-        : { participantId: group.participantId }),
-      trpcBaseUrl: reference.trpcBaseUrl,
-      webUrl: reference.webUrl
-    };
-  });
+  return parsed.data.map(parseConfiguredGroup);
 }
 
-export function findConfiguredGroup(
-  groups: readonly ConfiguredGroup[],
-  alias: string
+export function parseConfiguredGroup(
+  input: unknown
 ): ConfiguredGroup {
-  const normalizedAlias = alias.trim().toLowerCase();
-  const group = groups.find((candidate) => candidate.alias === normalizedAlias);
-  if (group === undefined) {
+  const parsed = configuredGroupInputSchema.safeParse(input);
+  if (!parsed.success) {
+    throw new ConfigurationError(`Invalid group configuration: ${z.prettifyError(parsed.error)}`);
+  }
+  const reference = parseGroupUrl(parsed.data.url);
+  return {
+    alias: parsed.data.alias,
+    groupId: reference.groupId,
+    ...(parsed.data.participantId === undefined
+      ? {}
+      : { participantId: parsed.data.participantId }),
+    trpcBaseUrl: reference.trpcBaseUrl,
+    webUrl: reference.webUrl
+  };
+}
+
+export function assertAllowedUpstreamHost(
+  group: ConfiguredGroup,
+  allowedHostnames: readonly string[]
+): void {
+  const hostname = new URL(group.webUrl).hostname.toLowerCase();
+  if (!allowedHostnames.includes(hostname)) {
     throw new ConfigurationError(
-      `Unknown group alias ${JSON.stringify(alias)}. Call list_groups first.`
+      "This Spliit hostname is not permitted by ALLOWED_SPLIIT_HOSTNAMES."
     );
   }
-  return group;
+}
+
+export function parseHostnameAllowlist(value: string, variableName: string): string[] {
+  const hostnames = value
+    .split(",")
+    .map((hostname) => hostname.trim().toLowerCase())
+    .filter((hostname) => hostname !== "");
+  for (const hostname of hostnames) {
+    if (
+      hostname.includes(":") ||
+      hostname.includes("/") ||
+      !/^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(
+        hostname
+      )
+    ) {
+      throw new ConfigurationError(`${variableName} contains an invalid hostname`);
+    }
+  }
+  return [...new Set(hostnames)];
 }
 
 function parseGroupUrl(value: string): {
@@ -95,27 +122,34 @@ function parseGroupUrl(value: string): {
   if (url.username !== "" || url.password !== "") {
     throw new ConfigurationError("Configured Spliit group URLs cannot contain credentials");
   }
+  if (url.search !== "" || url.hash !== "") {
+    throw new ConfigurationError("Configured Spliit group URLs cannot contain a query or fragment");
+  }
 
   const segments = url.pathname.split("/").filter((segment) => segment !== "");
   const groupsIndex = segments.lastIndexOf("groups");
   const encodedGroupId = groupsIndex >= 0 ? segments[groupsIndex + 1] : undefined;
-  if (encodedGroupId === undefined) {
+  if (encodedGroupId === undefined || groupsIndex + 2 !== segments.length) {
     throw new ConfigurationError(
       "Each configured URL must have the form https://host[/prefix]/groups/GROUP_ID"
     );
   }
 
-  const groupId = decodeURIComponent(encodedGroupId);
+  let groupId: string;
+  try {
+    groupId = decodeURIComponent(encodedGroupId);
+  } catch {
+    throw new ConfigurationError("A configured Spliit group URL has invalid encoding");
+  }
   if (!/^[A-Za-z0-9_-]{4,200}$/.test(groupId)) {
     throw new ConfigurationError("A configured Spliit group URL has an invalid group ID");
   }
 
   const prefixSegments = segments.slice(0, groupsIndex);
   const prefix = prefixSegments.length === 0 ? "" : `/${prefixSegments.join("/")}`;
-  const origin = url.origin;
   return {
     groupId,
-    trpcBaseUrl: `${origin}${prefix}/api/trpc`,
-    webUrl: `${origin}${prefix}/groups/${encodeURIComponent(groupId)}`
+    trpcBaseUrl: `${url.origin}${prefix}/api/trpc`,
+    webUrl: `${url.origin}${prefix}/groups/${encodeURIComponent(groupId)}`
   };
 }

@@ -1,8 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-import type { ConfiguredGroup } from "./config";
-import { ConfigurationError, findConfiguredGroup } from "./config";
+import { aliasSchema, ConfigurationError, type ConfiguredGroup } from "./config";
 import { SpliitAPIError, SpliitClient } from "./spliit/client";
 import { currencySpec, decimalToMinor, moneyOutput } from "./spliit/money";
 import {
@@ -16,18 +15,21 @@ import {
   type Group,
   type Participant
 } from "./spliit/schemas";
+import type {
+  ClaimedDraft,
+  ExpenseDraft,
+  GroupRegistryItem,
+  JsonObject
+} from "./state";
+import { StateError } from "./state";
 
-const aliasSchema = z
-  .string()
-  .min(1)
-  .max(40)
-  .describe("Configured group alias; call list_groups to discover aliases");
 const participantReferenceSchema = z
   .string()
   .min(1)
   .max(200)
   .describe("Participant ID or exact participant name");
 const expenseIdSchema = z.string().min(1).max(200);
+const draftIdSchema = z.uuid();
 const amountSchema = z
   .string()
   .min(1)
@@ -45,71 +47,91 @@ const readAnnotations = {
   openWorldHint: true
 } as const;
 
-const writeAnnotations = {
+const stateAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
   idempotentHint: false,
+  openWorldHint: false
+} as const;
+
+const writeAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
   openWorldHint: true
 } as const;
 
-interface ToolContext {
-  groups: readonly ConfiguredGroup[];
+export interface SpliitStateStore {
+  listGroups(): Promise<GroupRegistryItem[]>;
+  selectGroup(alias: string): Promise<GroupRegistryItem>;
+  getActiveGroup(): Promise<ConfiguredGroup>;
+  createDraft(
+    payload: ExpenseDraft,
+    ttlSeconds: number
+  ): Promise<{ draftId: string; expiresAt: string }>;
+  claimDraft(id: string): Promise<
+    | { state: "claimed"; draft: ClaimedDraft }
+    | { state: "complete"; result: JsonObject }
+  >;
+  completeDraft(
+    id: string,
+    claimToken: string,
+    result: JsonObject
+  ): Promise<void>;
+  releaseDraft(id: string, claimToken: string): Promise<void>;
+}
+
+export interface ToolContext {
+  state: SpliitStateStore;
   timeoutMs: number;
+  draftTtlSeconds: number;
   writesEnabled: boolean;
+  clientFactory?: (group: ConfiguredGroup, timeoutMs: number) => SpliitClient;
 }
 
 export function createSpliitMcpServer(context: ToolContext): McpServer {
   const server = new McpServer({
     name: "spliit-mcp-cloudflare",
-    version: "0.1.0"
+    version: "1.0.0"
   });
 
   server.registerTool(
     "list_groups",
     {
-      title: "List Spliit groups",
+      title: "List remembered Spliit groups",
       description:
-        "List the configured Spliit groups by safe alias. Secret group URLs and IDs are never returned.",
+        "List safe aliases and identify the active group. Secret group URLs and IDs are never returned.",
       inputSchema: z.object({}),
       annotations: readAnnotations
     },
-    async () =>
-      runTool(async () => {
-        const groups = await Promise.all(
-          context.groups.map(async (configured) => {
-            const group = await getGroup(configured, context.timeoutMs);
-            const activeParticipant = configured.participantId === undefined
-              ? undefined
-              : participants(group).find(
-                  (participant) => participant.id === configured.participantId
-                );
-            return {
-              alias: configured.alias,
-              name: group.name,
-              currency: group.currencyCode ?? group.currency,
-              participantCount: participants(group).length,
-              ...(activeParticipant === undefined
-                ? {}
-                : { activeParticipant: activeParticipant.name })
-            };
-          })
-        );
-        return { groups };
-      })
+    async () => runTool(async () => ({ groups: await context.state.listGroups() }))
+  );
+
+  server.registerTool(
+    "select_group",
+    {
+      title: "Select active Spliit group",
+      description:
+        "Set the group used by subsequent read and prepare tools on this authenticated MCP server.",
+      inputSchema: z.object({ group: aliasSchema }),
+      annotations: stateAnnotations
+    },
+    async ({ group }) =>
+      runTool(async () => ({ selected: (await context.state.selectGroup(group)).alias }))
   );
 
   server.registerTool(
     "get_group",
     {
-      title: "Get Spliit group",
-      description: "Get group details and participants using a configured alias.",
-      inputSchema: z.object({ group: aliasSchema }),
+      title: "Get active Spliit group",
+      description: "Get group details and participants for the active group.",
+      inputSchema: z.object({}),
       annotations: readAnnotations
     },
-    async ({ group: alias }) =>
+    async () =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, alias);
-        const group = await getGroup(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const group = await getGroup(context, configured);
         return {
           alias: configured.alias,
           name: group.name,
@@ -127,16 +149,16 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
   server.registerTool(
     "get_balances",
     {
-      title: "Get Spliit balances",
+      title: "Get active-group balances",
       description:
-        "Get each participant's balance and Spliit's suggested reimbursements.",
-      inputSchema: z.object({ group: aliasSchema }),
+        "Get each participant's balance and Spliit's suggested reimbursements for the active group.",
+      inputSchema: z.object({}),
       annotations: readAnnotations
     },
-    async ({ group: alias }) =>
+    async () =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, alias);
-        const client = createClient(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const client = createClient(context, configured);
         const [{ group }, result] = await Promise.all([
           client.query("groups.get", { groupId: configured.groupId }, groupResponseSchema),
           client.query(
@@ -171,20 +193,19 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
   server.registerTool(
     "list_expenses",
     {
-      title: "List Spliit expenses",
-      description: "List a page of expenses from a configured Spliit group.",
+      title: "List active-group expenses",
+      description: "List a page of expenses from the active Spliit group.",
       inputSchema: z.object({
-        group: aliasSchema,
         cursor: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(50).default(20),
         filter: z.string().max(200).optional()
       }),
       annotations: readAnnotations
     },
-    async ({ group: alias, cursor, limit, filter }) =>
+    async ({ cursor, limit, filter }) =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, alias);
-        const client = createClient(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const client = createClient(context, configured);
         const [{ group }, result] = await Promise.all([
           client.query("groups.get", { groupId: configured.groupId }, groupResponseSchema),
           client.query(
@@ -228,15 +249,15 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
   server.registerTool(
     "get_expense",
     {
-      title: "Get Spliit expense",
-      description: "Get full details for one expense.",
-      inputSchema: z.object({ group: aliasSchema, expenseId: expenseIdSchema }),
+      title: "Get active-group expense",
+      description: "Get full details for one expense in the active group.",
+      inputSchema: z.object({ expenseId: expenseIdSchema }),
       annotations: readAnnotations
     },
-    async ({ group: alias, expenseId }) =>
+    async ({ expenseId }) =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, alias);
-        const client = createClient(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const client = createClient(context, configured);
         const [{ group }, { expense }] = await Promise.all([
           client.query("groups.get", { groupId: configured.groupId }, groupResponseSchema),
           client.query(
@@ -283,18 +304,18 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
   server.registerTool(
     "list_categories",
     {
-      title: "List Spliit categories",
-      description: "List expense categories supported by a group's Spliit server.",
-      inputSchema: z.object({ group: aliasSchema }),
+      title: "List active-group categories",
+      description: "List expense categories supported by the active group's Spliit server.",
+      inputSchema: z.object({}),
       annotations: readAnnotations
     },
-    async ({ group: alias }) =>
+    async () =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, alias);
-        const result = await createClient(
-          configured,
-          context.timeoutMs
-        ).queryWithoutInput("categories.list", categoriesResponseSchema);
+        const configured = await context.state.getActiveGroup();
+        const result = await createClient(context, configured).queryWithoutInput(
+          "categories.list",
+          categoriesResponseSchema
+        );
         return { group: configured.alias, categories: result.categories };
       })
   );
@@ -302,19 +323,18 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
   server.registerTool(
     "list_activities",
     {
-      title: "List Spliit activities",
-      description: "List recent group and expense activity.",
+      title: "List active-group activities",
+      description: "List recent activity from the active group.",
       inputSchema: z.object({
-        group: aliasSchema,
         cursor: z.number().int().min(0).default(0),
         limit: z.number().int().min(1).max(50).default(20)
       }),
       annotations: readAnnotations
     },
-    async ({ group: alias, cursor, limit }) =>
+    async ({ cursor, limit }) =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, alias);
-        const client = createClient(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const client = createClient(context, configured);
         const [{ group }, result] = await Promise.all([
           client.query("groups.get", { groupId: configured.groupId }, groupResponseSchema),
           client.query(
@@ -343,22 +363,18 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
       })
   );
 
-  if (context.writesEnabled) {
-    registerWriteTools(server, context);
-  }
-
+  if (context.writesEnabled) registerWriteTools(server, context);
   return server;
 }
 
 function registerWriteTools(server: McpServer, context: ToolContext): void {
   server.registerTool(
-    "create_expense",
+    "prepare_expense",
     {
-      title: "Create Spliit expense",
+      title: "Prepare an expense",
       description:
-        "Create an evenly split expense. Writes must be explicitly enabled by the server owner.",
+        "Validate and preview an evenly split expense for the currently active group. This does not change Spliit.",
       inputSchema: z.object({
-        group: aliasSchema,
         title: z.string().trim().min(2).max(200),
         amount: amountSchema,
         expenseDate: dateSchema,
@@ -367,13 +383,12 @@ function registerWriteTools(server: McpServer, context: ToolContext): void {
         paidFor: z.array(participantReferenceSchema).min(1).max(100).optional(),
         notes: z.string().max(2000).optional()
       }),
-      annotations: writeAnnotations
+      annotations: stateAnnotations
     },
     async (input) =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, input.group);
-        const client = createClient(configured, context.timeoutMs);
-        const group = await getGroup(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const group = await getGroup(context, configured);
         const allParticipants = participants(group);
         const defaultPayer = configured.participantId === undefined
           ? undefined
@@ -400,58 +415,60 @@ function registerWriteTools(server: McpServer, context: ToolContext): void {
         }
         const currency = currencySpec(group);
         const amount = decimalToMinor(input.amount, currency.decimalDigits);
-        if (amount < 0) throw new ToolInputError("Amount must be positive.");
-        const result = await client.mutation(
-          "groups.expenses.create",
-          {
-            groupId: configured.groupId,
-            expenseFormValues: expenseFormValues({
-              date: input.expenseDate,
-              title: input.title,
-              categoryId: input.categoryId,
-              amount,
-              paidBy: payer.id,
-              paidFor: beneficiaries.map((participant) => participant.id),
-              notes: input.notes,
-              reimbursement: false
-            }),
-            ...(configured.participantId === undefined
-              ? {}
-              : { participantId: configured.participantId })
-          },
-          expenseIdResponseSchema
-        );
-        return {
-          created: true,
-          group: configured.alias,
-          expenseId: result.expenseId,
-          title: input.title,
-          amount: moneyOutput(amount, currency)
+        const expenseDate = input.expenseDate ?? new Date().toISOString().slice(0, 10);
+        const mutationInput = {
+          groupId: configured.groupId,
+          expenseFormValues: expenseFormValues({
+            date: expenseDate,
+            title: input.title,
+            categoryId: input.categoryId,
+            amount,
+            paidBy: payer.id,
+            paidFor: beneficiaries.map((participant) => participant.id),
+            notes: input.notes,
+            reimbursement: false
+          }),
+          ...(configured.participantId === undefined
+            ? {}
+            : { participantId: configured.participantId })
         };
+        const preview = {
+          group: configured.alias,
+          groupName: group.name,
+          kind: "expense",
+          title: input.title,
+          amount: moneyOutput(amount, currency),
+          paidBy: payer.name,
+          paidFor: beneficiaries.map((participant) => participant.name),
+          expenseDate
+        };
+        const draft = await context.state.createDraft(
+          { kind: "expense", group: configured, mutationInput, preview },
+          context.draftTtlSeconds
+        );
+        return { prepared: true, ...draft, preview };
       })
   );
 
   server.registerTool(
-    "create_reimbursement",
+    "prepare_reimbursement",
     {
-      title: "Create Spliit reimbursement",
+      title: "Prepare a reimbursement",
       description:
-        "Record a reimbursement from one participant to another. Writes must be explicitly enabled.",
+        "Validate and preview a reimbursement for the currently active group. This does not change Spliit.",
       inputSchema: z.object({
-        group: aliasSchema,
         from: participantReferenceSchema,
         to: participantReferenceSchema,
         amount: amountSchema,
         expenseDate: dateSchema,
         notes: z.string().max(2000).optional()
       }),
-      annotations: writeAnnotations
+      annotations: stateAnnotations
     },
     async (input) =>
       runTool(async () => {
-        const configured = resolveGroup(context.groups, input.group);
-        const client = createClient(configured, context.timeoutMs);
-        const group = await getGroup(configured, context.timeoutMs);
+        const configured = await context.state.getActiveGroup();
+        const group = await getGroup(context, configured);
         const allParticipants = participants(group);
         const from = resolveParticipant(allParticipants, input.from);
         const to = resolveParticipant(allParticipants, input.to);
@@ -460,41 +477,83 @@ function registerWriteTools(server: McpServer, context: ToolContext): void {
         }
         const currency = currencySpec(group);
         const amount = decimalToMinor(input.amount, currency.decimalDigits);
-        if (amount < 0) throw new ToolInputError("Amount must be positive.");
-        const result = await client.mutation(
-          "groups.expenses.create",
-          {
-            groupId: configured.groupId,
-            expenseFormValues: expenseFormValues({
-              date: input.expenseDate,
-              title: "Reimbursement",
-              categoryId: 1,
-              amount,
-              paidBy: from.id,
-              paidFor: [to.id],
-              notes: input.notes,
-              reimbursement: true
-            }),
-            ...(configured.participantId === undefined
-              ? {}
-              : { participantId: configured.participantId })
-          },
-          expenseIdResponseSchema
-        );
-        return {
-          created: true,
+        const expenseDate = input.expenseDate ?? new Date().toISOString().slice(0, 10);
+        const mutationInput = {
+          groupId: configured.groupId,
+          expenseFormValues: expenseFormValues({
+            date: expenseDate,
+            title: "Reimbursement",
+            categoryId: 1,
+            amount,
+            paidBy: from.id,
+            paidFor: [to.id],
+            notes: input.notes,
+            reimbursement: true
+          }),
+          ...(configured.participantId === undefined
+            ? {}
+            : { participantId: configured.participantId })
+        };
+        const preview = {
           group: configured.alias,
-          expenseId: result.expenseId,
+          groupName: group.name,
+          kind: "reimbursement",
           from: from.name,
           to: to.name,
-          amount: moneyOutput(amount, currency)
+          amount: moneyOutput(amount, currency),
+          expenseDate
         };
+        const draft = await context.state.createDraft(
+          { kind: "reimbursement", group: configured, mutationInput, preview },
+          context.draftTtlSeconds
+        );
+        return { prepared: true, ...draft, preview };
+      })
+  );
+
+  server.registerTool(
+    "commit_draft",
+    {
+      title: "Commit a prepared Spliit write",
+      description:
+        "Commit one immutable prepared draft to its bound group. Changing the active group cannot redirect it.",
+      inputSchema: z.object({ draftId: draftIdSchema }),
+      annotations: writeAnnotations
+    },
+    async ({ draftId }) =>
+      runTool(async () => {
+        const claim = await context.state.claimDraft(draftId);
+        if (claim.state === "complete") {
+          return { ...claim.result, alreadyCommitted: true };
+        }
+        let result: { expenseId: string };
+        try {
+          result = await createClient(context, claim.draft.payload.group).mutation(
+            "groups.expenses.create",
+            claim.draft.payload.mutationInput,
+            expenseIdResponseSchema
+          );
+        } catch (error) {
+          await context.state.releaseDraft(draftId, claim.draft.claimToken);
+          throw error;
+        }
+        const committed = {
+          committed: true,
+          draftId,
+          group: claim.draft.payload.group.alias,
+          kind: claim.draft.payload.kind,
+          expenseId: result.expenseId
+        };
+        // Do not release the claim if persistence fails after the upstream
+        // mutation: an ambiguous draft is safer than a duplicate expense.
+        await context.state.completeDraft(draftId, claim.draft.claimToken, committed);
+        return committed;
       })
   );
 }
 
 function expenseFormValues(input: {
-  date?: string | undefined;
+  date: string;
   title: string;
   categoryId: number;
   amount: number;
@@ -502,9 +561,9 @@ function expenseFormValues(input: {
   paidFor: readonly string[];
   notes?: string | undefined;
   reimbursement: boolean;
-}): Record<string, unknown> {
+}): JsonObject {
   return {
-    expenseDate: input.date ?? new Date().toISOString().slice(0, 10),
+    expenseDate: input.date,
     title: input.title,
     category: input.categoryId,
     amount: input.amount,
@@ -522,22 +581,12 @@ function expenseFormValues(input: {
   };
 }
 
-function resolveGroup(
-  groups: readonly ConfiguredGroup[],
-  alias: string
-): ConfiguredGroup {
-  return findConfiguredGroup(groups, alias);
+function createClient(context: ToolContext, group: ConfiguredGroup): SpliitClient {
+  return context.clientFactory?.(group, context.timeoutMs) ?? new SpliitClient(group, context.timeoutMs);
 }
 
-function createClient(group: ConfiguredGroup, timeoutMs: number): SpliitClient {
-  return new SpliitClient(group, timeoutMs);
-}
-
-async function getGroup(
-  configured: ConfiguredGroup,
-  timeoutMs: number
-): Promise<Group> {
-  const response = await createClient(configured, timeoutMs).query(
+async function getGroup(context: ToolContext, configured: ConfiguredGroup): Promise<Group> {
+  const response = await createClient(context, configured).query(
     "groups.get",
     { groupId: configured.groupId },
     groupResponseSchema
@@ -604,14 +653,14 @@ async function runTool(
 }
 
 function safeErrorMessage(error: unknown): string {
-  if (error instanceof ToolInputError || error instanceof ConfigurationError) {
+  if (
+    error instanceof ToolInputError ||
+    error instanceof ConfigurationError ||
+    error instanceof StateError
+  ) {
     return error.message;
   }
-  if (error instanceof SpliitAPIError) {
-    return error.message;
-  }
-  if (error instanceof Error && error.message.startsWith("Amount")) {
-    return error.message;
-  }
+  if (error instanceof SpliitAPIError) return error.message;
+  if (error instanceof Error && error.message.startsWith("Amount")) return error.message;
   return "The operation failed without exposing configuration secrets.";
 }

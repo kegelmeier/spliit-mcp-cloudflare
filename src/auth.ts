@@ -30,14 +30,14 @@ function constantTimeEqual(left: Uint8Array, right: Uint8Array): boolean {
   return difference === 0;
 }
 
-export function unauthorizedResponse(): Response {
+export function unauthorizedResponse(realm = "spliit-mcp"): Response {
   return Response.json(
     { error: "Unauthorized" },
     {
       status: 401,
       headers: {
         "Cache-Control": "no-store",
-        "WWW-Authenticate": 'Bearer realm="spliit-mcp"'
+        "WWW-Authenticate": `Bearer realm="${realm}"`
       }
     }
   );

@@ -9,11 +9,32 @@
   "vars": {
     "WRITES_ENABLED": "false",
     "SPLIIT_TIMEOUT_MS": "15000",
-    "ALLOWED_HOSTNAMES": ""
+    "DRAFT_TTL_SECONDS": "600",
+    "ALLOWED_HOSTNAMES": "",
+    "ALLOWED_SPLIIT_HOSTNAMES": "spliit.app"
   },
   "secrets": {
-    "required": ["MCP_AUTH_TOKEN", "SPLIIT_GROUPS_JSON"]
+    "required": [
+      "MCP_AUTH_TOKEN",
+      "ADMIN_TOKEN",
+      "DATA_ENCRYPTION_KEY",
+      "SPLIIT_GROUPS_JSON"
+    ]
   },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "SPLIIT_STATE",
+        "class_name": "SpliitState"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["SpliitState"]
+    }
+  ],
   "observability": {
     "enabled": true,
     "logs": {

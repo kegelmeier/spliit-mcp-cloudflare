@@ -1,16 +1,17 @@
 # MCP client setup
 
-The Worker exposes a remote Streamable HTTP MCP endpoint at:
+Use one remote Streamable HTTP endpoint for every remembered group:
 
 ```text
 https://YOUR_WORKER_HOST/mcp
 ```
 
-Every request requires `Authorization: Bearer <MCP_AUTH_TOKEN>`.
+Every request requires `Authorization: Bearer <MCP_AUTH_TOKEN>`. The separate
+admin token is never configured in an MCP client.
 
 ## Codex CLI
 
-Make the token available to the process that launches Codex, then run:
+Make the MCP token available to the process that launches Codex, then run:
 
 ```bash
 codex mcp add spliit \
@@ -18,20 +19,11 @@ codex mcp add spliit \
   --bearer-token-env-var SPLIIT_MCP_TOKEN
 ```
 
-Check the registration:
+Check it with `codex mcp list` and `codex mcp get spliit`. Store the environment
+value through the operating system's secret manager or an environment manager,
+not a repository or generic synchronized document.
 
-```bash
-codex mcp list
-codex mcp get spliit
-```
-
-The environment variable is deliberately named differently from the Worker
-secret. Its value is the same bearer token, but it belongs in the client host's
-secret storage, not in this repository.
-
-## Codex configuration file
-
-The equivalent user-level configuration is:
+## Codex configuration
 
 ```toml
 [mcp_servers.spliit]
@@ -40,38 +32,36 @@ bearer_token_env_var = "SPLIIT_MCP_TOKEN"
 default_tools_approval_mode = "writes"
 ```
 
-`default_tools_approval_mode = "writes"` permits read tools without prompting
-while still requiring approval for mutating tools if writes are later enabled.
-The named environment variable must exist before Codex starts.
-
-## Codex UI
-
-Open **Settings** → **Configuration** → **Open config.toml**, add the
-environment-backed configuration above, then open **Settings** → **MCP
-servers**. Confirm `spliit` appears and select **Restart**. Codex shares this MCP
-configuration across the desktop app, CLI, and IDE extension on the same host.
-
-The **Add server** form can add a Streamable HTTP URL directly. If the installed
-client version exposes an environment-backed bearer-token source, it can be used
-instead of editing `config.toml`; do not save the token in a generic notes field.
+Open **Settings → MCP servers** and restart after editing. The `writes` approval
+mode allows read tools without prompting while requiring approval for durable
+selection and write preparation/commit tools.
 
 ## Other clients
-
-Use these settings:
 
 | Setting | Value |
 | --- | --- |
 | Transport | Streamable HTTP |
 | URL | `https://YOUR_WORKER_HOST/mcp` |
 | Authentication | Bearer token |
-| Token | the value stored as `MCP_AUTH_TOKEN` in Cloudflare |
+| Token | the value of the Worker's `MCP_AUTH_TOKEN` |
 
-If a client cannot attach an Authorization header to a remote Streamable HTTP
-server, it is not compatible with this deployment's authentication model. Do
-not remove authentication to accommodate it.
+The client must send authorization on every MCP request. Do not disable auth if
+the client lacks remote bearer-token support.
+
+## Normal use
+
+1. Call `list_groups`.
+2. Call `select_group` only when the desired alias is not active.
+3. Call read tools without a group argument.
+4. If writes are enabled, call a prepare tool and inspect its preview.
+5. Approve `commit_draft` with the returned draft ID.
+
+Selection persists across client reconnects and conversations because this is a
+single personal registry. That convenience makes immutable drafts important:
+changing selection after preparation does not change a draft's destination.
 
 ## Safe verification
 
-After reconnecting, run `list_groups`. It should return aliases only. Then call
-`get_group` with an alias. Keep writes disabled until both calls work and the
-returned data matches the intended group.
+After reconnecting, call `list_groups`, select a known alias, and call
+`get_group`. Verify aliases and expected data without copying private group
+contents into chat, logs, or bug reports.

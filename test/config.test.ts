@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertAllowedUpstreamHost,
   ConfigurationError,
-  findConfiguredGroup,
-  parseConfiguredGroups
+  parseConfiguredGroups,
+  parseHostnameAllowlist
 } from "../src/config";
 
 describe("group configuration", () => {
@@ -51,11 +52,17 @@ describe("group configuration", () => {
     ).toThrow("Duplicate alias");
   });
 
-  it("looks up aliases case-insensitively without exposing group IDs", () => {
-    const groups = parseConfiguredGroups(
-      JSON.stringify([{ alias: "home", url: "https://example.test/groups/secret_123" }])
+  it("normalizes aliases and enforces the outbound hostname allowlist", () => {
+    const [group] = parseConfiguredGroups(
+      JSON.stringify([{ alias: "Home", url: "https://example.test/groups/secret_123" }])
     );
-    expect(findConfiguredGroup(groups, " HOME ").alias).toBe("home");
-    expect(() => findConfiguredGroup(groups, "missing")).toThrow("list_groups");
+    expect(group?.alias).toBe("home");
+    expect(() =>
+      assertAllowedUpstreamHost(group!, parseHostnameAllowlist("spliit.app", "TEST"))
+    ).toThrow("not permitted");
+  });
+
+  it("accepts an empty import list for fresh stateful installations", () => {
+    expect(parseConfiguredGroups("[]")).toEqual([]);
   });
 });

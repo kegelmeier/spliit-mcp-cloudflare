@@ -25,6 +25,35 @@ describe("Worker HTTP boundary", () => {
     expect(response.headers.get("WWW-Authenticate")).toContain("Bearer");
   });
 
+  it("serves a no-store, frame-protected setup page", async () => {
+    const response = await SELF.fetch("https://worker.test/setup");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    expect(response.headers.get("Content-Security-Policy")).toContain(
+      "frame-ancestors 'none'"
+    );
+    const body = await response.text();
+    expect(body).not.toContain("group-secret");
+  });
+
+  it("protects group administration with a distinct bearer token", async () => {
+    const response = await SELF.fetch("https://worker.test/admin/groups");
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toContain("spliit-mcp-admin");
+  });
+
+  it("imports legacy groups through the authenticated admin boundary", async () => {
+    const response = await SELF.fetch("https://worker.test/admin/groups", {
+      headers: {
+        Authorization: "Bearer different-admin-token-with-at-least-32-chars"
+      }
+    });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      groups: [{ alias: "holiday", active: true }]
+    });
+  });
+
   it("returns 404 outside its declared routes", async () => {
     const response = await SELF.fetch("https://worker.test/nope");
     expect(response.status).toBe(404);

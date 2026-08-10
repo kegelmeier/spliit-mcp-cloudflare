@@ -1,7 +1,7 @@
 # Terminal installation
 
-This path works on macOS or Linux with Git, Node.js 22 or newer, npm, and a web
-browser for Cloudflare authorization.
+Requires macOS or Linux, Git, Node.js 22+, npm, and a browser for Cloudflare
+login.
 
 ## 1. Clone and validate
 
@@ -13,24 +13,19 @@ cp .dev.vars.example .dev.vars
 chmod 600 .dev.vars
 ```
 
-Open `.dev.vars` in a local editor. Replace the two placeholder values:
+Generate three independent values in a password manager or with
+`openssl rand -hex 32`. Use one as `MCP_AUTH_TOKEN`, a different one as
+`ADMIN_TOKEN`, and the third as `DATA_ENCRYPTION_KEY`. Edit `.dev.vars` locally:
 
 ```dotenv
-MCP_AUTH_TOKEN=REPLACE_WITH_AT_LEAST_32_RANDOM_CHARACTERS
-SPLIIT_GROUPS_JSON=[{"alias":"holiday","url":"https://spliit.app/groups/REPLACE_WITH_GROUP_ID","participantId":"OPTIONAL_PARTICIPANT_ID"}]
+MCP_AUTH_TOKEN=REPLACE_WITH_64_RANDOM_HEX_CHARACTERS
+ADMIN_TOKEN=REPLACE_WITH_A_DIFFERENT_64_RANDOM_HEX_CHARACTERS
+DATA_ENCRYPTION_KEY=REPLACE_WITH_A_THIRD_64_RANDOM_HEX_CHARACTERS
+SPLIIT_GROUPS_JSON=[]
 ```
 
-Generate the bearer token with a password manager, or run the following and
-immediately save its output in a password manager:
-
-```bash
-openssl rand -hex 32
-```
-
-Do not paste the real `.dev.vars` contents into chat, shell command arguments,
-issues, or commits. The file is ignored by Git.
-
-Run the complete local check:
+Do not paste the populated file into chat or shell arguments. It is ignored by
+Git. Run:
 
 ```bash
 npm run check
@@ -44,29 +39,47 @@ npx wrangler login
 npx wrangler deploy --secrets-file .dev.vars
 ```
 
-If `whoami` already shows the intended account, skip `login`. The deployment
-command uploads both required secrets alongside the code, which is necessary on
-the first deployment because `wrangler.jsonc` declares them as required.
-
-Wrangler prints the Worker URL. Check the non-secret health endpoint:
+Skip login if `whoami` already shows the intended account. Then check:
 
 ```bash
 curl --fail --silent --show-error https://YOUR_WORKER_HOST/healthz
 ```
 
-The result should report `ok: true`. Keep `.dev.vars` only if you need local
-development; otherwise remove it after the token is safely stored elsewhere.
+## 3. Add groups
 
-## 3. Connect the MCP client
+Open `https://YOUR_WORKER_HOST/setup`. Enter the admin token, a safe alias, the
+full Spliit group link, and optionally your participant ID. The participant ID
+lets expense preparation choose your participant as the default payer.
 
-The endpoint is the Worker URL plus `/mcp`:
+The link is validated against `ALLOWED_SPLIIT_HOSTNAMES`, checked against
+Spliit, encrypted, and stored. Add any further groups through the same page;
+there is no redeploy and no application-level group cap.
 
-```text
-https://YOUR_WORKER_HOST/mcp
+For a self-hosted Spliit server, add its exact hostname to the comma-separated
+`ALLOWED_SPLIIT_HOSTNAMES` value in `wrangler.jsonc`, run `npm run check`, and
+redeploy before using setup.
+
+### Terminal-only setup API
+
+If a browser is unavailable, create two mode-0600 files outside the repository:
+
+- a header file containing `Authorization: Bearer <ADMIN_TOKEN>`;
+- a JSON file containing `{"alias":"holiday","url":"FULL_GROUP_URL"}` and
+  optional `participantId`.
+
+Then send files rather than secrets as command arguments:
+
+```bash
+curl --fail --silent --show-error \
+  --header @/SECURE/PATH/admin.headers \
+  --header 'Content-Type: application/json' \
+  --data-binary @/SECURE/PATH/group.json \
+  https://YOUR_WORKER_HOST/admin/groups
 ```
 
-For Codex CLI, load the token into the environment without placing it in the
-repository, then add the remote server:
+Delete those temporary files after validation if their values are backed up.
+
+## 4. Connect one MCP client
 
 ```bash
 codex mcp add spliit \
@@ -74,23 +87,19 @@ codex mcp add spliit \
   --bearer-token-env-var SPLIIT_MCP_TOKEN
 ```
 
-`SPLIIT_MCP_TOKEN` must be available in the environment that launches Codex.
-Use your operating system's secret manager or an environment manager rather
-than committing it to a shell startup file. See [MCP client setup](mcp-clients.md)
-for the equivalent configuration file and UI paths.
+Make `SPLIIT_MCP_TOKEN` available to the process that launches Codex through an
+OS secret manager or environment manager. Restart the client, call
+`list_groups`, `select_group`, then `get_group`. The write tools should be absent.
 
-## 4. Verify read-only operation
+## Upgrade from 0.x
 
-Restart the MCP client, then ask it to:
+Do not use `[]` for the first version-1 deployment. Copy the exact current
+`SPLIIT_GROUPS_JSON` secret into the protected secrets file without printing it,
+add `ADMIN_TOKEN` and `DATA_ENCRYPTION_KEY`, and deploy. Make one authenticated
+request, confirm all aliases imported, then change the legacy secret to `[]`.
+Read the detailed warning in [Agentic installation](agentic-install.md#upgrade-an-existing-0x-deployment).
 
-1. list the configured Spliit group aliases;
-2. read the chosen group;
-3. show which tools are available.
-
-The two write tools should be absent. Do not enable writes until the read-only
-deployment behaves as expected.
-
-## Updating
+## Updating version 1
 
 ```bash
 git pull --ff-only
@@ -99,5 +108,5 @@ npm run check
 npx wrangler deploy
 ```
 
-Existing Worker secrets are preserved. Review release notes and configuration
-changes before every deployment.
+Existing secrets and Durable Object data are preserved. Review migrations and
+release notes first. Never casually change `DATA_ENCRYPTION_KEY`.

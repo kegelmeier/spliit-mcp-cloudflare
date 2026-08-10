@@ -1,76 +1,73 @@
-# Install with the Cloudflare and MCP client UIs
+# Install with Cloudflare and MCP client UIs
 
-This path avoids a local development environment. It uses Cloudflare's official
-Deploy to Cloudflare flow, which copies the public repository and deploys it
-through Workers Builds.
+This path uses Cloudflare's Deploy to Cloudflare flow and the Worker's protected
+setup page.
 
-## 1. Prepare the two secret values
+## 1. Prepare secrets
 
-Create and save:
+Create three independent random 32-byte values in a password manager:
 
-- `MCP_AUTH_TOKEN`: at least 32 random characters, unique to this Worker;
-- `SPLIIT_GROUPS_JSON`: a one-line JSON array such as the placeholder below.
+- `MCP_AUTH_TOKEN` for the MCP client;
+- `ADMIN_TOKEN` for the setup page;
+- `DATA_ENCRYPTION_KEY`, encoded as exactly 64 hexadecimal characters.
 
-```json
-[{"alias":"holiday","url":"https://spliit.app/groups/REPLACE_WITH_GROUP_ID","participantId":"OPTIONAL_PARTICIPANT_ID"}]
-```
-
-Use a password manager to generate and retain the bearer token. Never put these
-real values in the copied GitHub repository.
+The two tokens must differ. Also prepare `SPLIIT_GROUPS_JSON` with the literal
+value `[]`. Do not add a group link to the deployment form on a new install.
 
 ## 2. Deploy in Cloudflare
 
-1. Select [Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/kegelmeier/spliit-mcp-cloudflare).
-2. Sign in to Cloudflare and authorize the requested GitHub connection.
-3. Choose a repository and Worker name, or keep the suggested names.
-4. Replace the example values for `MCP_AUTH_TOKEN` and
-   `SPLIIT_GROUPS_JSON` with the values prepared above.
-5. Leave `WRITES_ENABLED` set to `false`.
-6. Start the deployment and wait for Workers Builds to finish.
-7. Open `https://YOUR_WORKER_HOST/healthz`. It should return an `ok` result.
+1. Open [Deploy to Cloudflare](https://deploy.workers.cloudflare.com/?url=https://github.com/kegelmeier/spliit-mcp-cloudflare).
+2. Sign in and authorize the GitHub connection.
+3. Choose a repository and Worker name.
+4. Add all four values as **Secret**, never plaintext variables.
+5. Leave `WRITES_ENABLED` `false` and
+   `ALLOWED_SPLIIT_HOSTNAMES` as `spliit.app`.
+6. Deploy and wait for Workers Builds.
+7. Open `https://YOUR_WORKER_HOST/healthz`; it should report `ok`.
 
-Cloudflare's deployment flow discovers required Worker secrets from
-`.dev.vars.example`. The source repository contains placeholders only.
+If the deployment form does not expose a required value, open **Workers &
+Pages → your Worker → Settings → Variables and Secrets**, add it as a secret,
+and deploy again.
 
-If you need to replace a value later, open Cloudflare Dashboard, then:
+## 3. Add groups privately
 
-1. **Workers & Pages** → your Worker;
-2. **Settings** → **Variables and Secrets** → **Add**;
-3. select the **Secret** type, enter the exact name and value;
-4. select **Deploy**.
+Open `https://YOUR_WORKER_HOST/setup` on the expected HTTPS hostname. Enter:
 
-Do not use the plaintext variable type for either required value. Secret values
-cannot be viewed again after they are saved.
+- the admin token;
+- a safe alias such as `holiday`;
+- the full group link;
+- optionally, your participant ID.
 
-## 3. Add the server in an MCP client UI
+Select **Add or update group**. The page shows the group name returned by Spliit,
+but never displays its stored link or ID. Add more groups the same way. The
+token remains only in page memory and is lost on reload.
 
-Codex supports bearer tokens for Streamable HTTP servers. The safest setup is
-to source the token from an environment variable instead of saving it directly
-in the configuration:
+Use **Select** to set the initial active group. Removing or updating an alias
+also invalidates pending drafts bound to that alias.
 
-1. make `SPLIIT_MCP_TOKEN` available to the environment that launches Codex;
-2. open **Settings** → **Configuration** → **Open config.toml**;
-3. add the environment-backed configuration from
-   [MCP client setup](mcp-clients.md#codex-configuration-file);
-4. open **Settings** → **MCP servers**, confirm `spliit` appears, and select
-   **Restart**.
+## 4. Add one MCP server
 
-The **Add server** form can add a Streamable HTTP URL directly. If your client
-version also exposes a dedicated bearer-token source, select the environment
-variable option; otherwise use `config.toml` as above.
+For Codex, the preferred configuration uses an environment-backed token:
 
-Other MCP clients use different labels. Select a remote or Streamable HTTP
-server, use the same `/mcp` URL, and set this request header:
+1. expose `SPLIIT_MCP_TOKEN` to the environment that launches Codex;
+2. open **Settings → Configuration → Open config.toml**;
+3. add the configuration in [MCP client setup](mcp-clients.md);
+4. open **Settings → MCP servers** and restart `spliit`.
 
-```text
-Authorization: Bearer YOUR_MCP_AUTH_TOKEN
-```
+For another client, choose **Streamable HTTP**, use
+`https://YOUR_WORKER_HOST/mcp`, and configure `Authorization: Bearer` through a
+dedicated secret/token field. Never remove Worker authentication to accommodate
+an incompatible client.
 
-Use a dedicated bearer-token field when the UI offers one. Avoid a generic
-plain-text notes field or synchronized document.
+## 5. Verify
 
-## 4. Confirm the result
+Ask the client to list aliases, select one, and read its metadata. Confirm
+`prepare_expense`, `prepare_reimbursement`, and `commit_draft` are absent.
 
-Ask the client to list Spliit group aliases, then read one group. Confirm that
-`create_expense` and `create_reimbursement` are not listed. If the client cannot
-connect, use [Troubleshooting](troubleshooting.md).
+## Existing 0.x deployment
+
+The UI upgrade must preserve the old `SPLIIT_GROUPS_JSON` for the first version-1
+request. Add the new admin/encryption secrets first, deploy, authenticate, and
+confirm aliases imported. Only then replace the legacy JSON secret with `[]`.
+Deploying the first version-1 request with `[]` permanently completes an empty
+bootstrap; use `/setup` to recover by adding links individually.

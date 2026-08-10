@@ -4,6 +4,7 @@ Contributions are welcome.
 
 1. Never use a real Spliit group URL, ID, participant name, or expense in tests.
 2. Keep read access as the default and gate every mutation behind
+   active-group selection, draft claims, encryption boundaries, and
    `WRITES_ENABLED`.
 3. Sanitize upstream errors and avoid logging request bodies or query URLs.
 4. Add regression tests for behavior and security boundaries.
