@@ -1,0 +1,3 @@
+# Copy to .dev.vars. Never commit the populated file.
+MCP_AUTH_TOKEN=replace-with-at-least-32-random-characters
+SPLIIT_GROUPS_JSON=[{"alias":"holiday","url":"https://spliit.app/groups/REPLACE_ME","participantId":"OPTIONAL_PARTICIPANT_ID"}]

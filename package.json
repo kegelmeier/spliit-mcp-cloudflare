@@ -1,0 +1,54 @@
+{
+  "name": "spliit-mcp-cloudflare",
+  "version": "0.1.0",
+  "description": "Unofficial, secure, single-user Spliit MCP server for Cloudflare Workers",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kegelmeier/spliit-mcp-cloudflare.git"
+  },
+  "homepage": "https://github.com/kegelmeier/spliit-mcp-cloudflare#readme",
+  "bugs": {
+    "url": "https://github.com/kegelmeier/spliit-mcp-cloudflare/issues"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:dry-run": "wrangler deploy --dry-run",
+    "typecheck": "tsc --noEmit",
+    "types": "wrangler types worker-configuration.d.ts --include-runtime false",
+    "types:check": "wrangler types worker-configuration.d.ts --include-runtime false --check",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check:startup": "wrangler check startup --outfile .wrangler/worker-startup.cpuprofile",
+    "check": "npm run types:check && npm run typecheck && npm test && npm run deploy:dry-run && npm run check:startup"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.20.1",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "latest",
+    "@cloudflare/workers-types": "5.20260809.1",
+    "@modelcontextprotocol/client": "^2.0.0",
+    "typescript": "latest",
+    "vitest": "latest",
+    "wrangler": "latest"
+  },
+  "cloudflare": {
+    "bindings": {
+      "MCP_AUTH_TOKEN": {
+        "description": "Generate a unique bearer token with at least 32 random characters. Save it in your password manager; MCP clients need the same value."
+      },
+      "SPLIIT_GROUPS_JSON": {
+        "description": "A one-line JSON array of group aliases and full Spliit group URLs. Group URLs grant access and must remain secret. See README Configuration."
+      }
+    }
+  }
+}

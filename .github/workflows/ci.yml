@@ -1,0 +1,25 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      MCP_AUTH_TOKEN: ci-only-token-with-at-least-thirty-two-characters
+      SPLIIT_GROUPS_JSON: '[{"alias":"ci","url":"https://spliit.test/groups/ci-placeholder"}]'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run check

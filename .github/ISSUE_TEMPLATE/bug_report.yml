@@ -1,0 +1,42 @@
+name: Bug report
+description: Report a reproducible problem without including private Spliit data
+title: "[Bug]: "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Never include a real group URL, group ID, participant data, bearer token, expense, or unredacted Worker log.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened, using placeholder data only?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction
+      description: Provide minimal steps and synthetic inputs.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Privacy check
+      options:
+        - label: I removed all real Spliit identifiers, group contents, tokens, and private URLs.
+          required: true
