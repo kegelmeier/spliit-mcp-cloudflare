@@ -72,11 +72,13 @@ export class SpliitClient {
     try {
       const headers = new Headers(init.headers);
       headers.set("Accept", "application/json");
-      headers.set("User-Agent", "spliit-mcp-cloudflare/1.0");
-      response = await this.fetcher(url, {
+      // Native Workers APIs can enforce their invocation receiver. Calling a
+      // stored `fetch` as `this.fetcher()` binds the SpliitClient instance and
+      // throws TypeError in production even though local mocks accept it.
+      const fetcher = this.fetcher;
+      response = await fetcher(url, {
         ...init,
-        headers,
-        redirect: "error",
+        headers: Object.fromEntries(headers.entries()),
         signal: AbortSignal.timeout(this.timeoutMs)
       });
     } catch (error) {
@@ -87,14 +89,24 @@ export class SpliitClient {
       );
     }
 
-    const payload = await readLimitedJson(response, procedure);
+    // Cloudflare production currently throws TypeError for non-default redirect
+    // modes on these subrequests. Reject any response that the runtime followed
+    // so redirected content can never be accepted as a valid Spliit response.
+    if (response.redirected) {
+      await response.body?.cancel();
+      throw new SpliitAPIError("The configured Spliit server redirected unexpectedly.", procedure);
+    }
+
     if (!response.ok) {
+      await response.body?.cancel();
       throw new SpliitAPIError(
         `Spliit rejected the request with HTTP ${response.status}.`,
         procedure,
         response.status
       );
     }
+
+    const payload = await readLimitedJson(response, procedure);
 
     const envelope = z
       .object({

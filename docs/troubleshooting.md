@@ -45,8 +45,13 @@ and redeploy. Do not use a broad proxy host as a shortcut.
 ## Setup cannot reach Spliit
 
 Confirm the group opens in a browser and its server still exposes Spliit's tRPC
-interface. Redirects are rejected. Sanitized errors intentionally omit the
-private URL and group ID.
+interface. Responses that Cloudflare redirected are rejected rather than parsed
+as Spliit data. Sanitized errors intentionally omit the private URL and group ID.
+
+For a safe server-side connectivity check, send an authenticated `POST` request
+to `/admin/probe` with the admin bearer token. A successful response reports
+only the active alias, hostname, and read-status booleans for the group and its
+balances; it never returns the stored group URL, ID, or balance values.
 
 ## No groups appear after upgrading
 

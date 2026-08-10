@@ -92,7 +92,7 @@ export interface ToolContext {
 export function createSpliitMcpServer(context: ToolContext): McpServer {
   const server = new McpServer({
     name: "spliit-mcp-cloudflare",
-    version: "1.0.0"
+    version: "1.0.1"
   });
 
   server.registerTool(

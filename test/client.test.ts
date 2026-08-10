@@ -12,9 +12,24 @@ const group: ConfiguredGroup = {
 };
 
 describe("Spliit tRPC client", () => {
+  it("invokes a supplied fetch function without an object receiver", async () => {
+    let receiver: unknown = "not called";
+    const fetcher = function (this: unknown): Promise<Response> {
+      receiver = this;
+      return Promise.resolve(
+        Response.json({ result: { data: { json: { value: "ok" } } } })
+      );
+    } as typeof fetch;
+    const client = new SpliitClient(group, 5_000, fetcher);
+    await client.query("groups.get", {}, z.object({ value: z.string() }));
+    expect(receiver).toBeUndefined();
+  });
+
   it("sends the correct tRPC query envelope and validates output", async () => {
-    const fetcher = vi.fn<typeof fetch>(async (input) => {
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : input.toString());
+      expect(init?.redirect).toBeUndefined();
+      expect(new Headers(init?.headers).get("User-Agent")).toBeNull();
       expect(url.pathname).toBe("/api/trpc/groups.get");
       expect(JSON.parse(url.searchParams.get("input") ?? "null")).toEqual({
         json: { groupId: "group-secret" }
@@ -64,5 +79,23 @@ describe("Spliit tRPC client", () => {
     expect(error).toBeInstanceOf(SpliitAPIError);
     expect(String(error)).not.toContain("group-secret");
     expect(String(error)).toContain("HTTP 404");
+  });
+
+  it("rejects a response that the runtime redirected", async () => {
+    const fetcher = vi.fn<typeof fetch>(async () => {
+      const response = Response.json({
+        result: { data: { json: { value: "untrusted" } } }
+      });
+      Object.defineProperty(response, "redirected", { value: true });
+      return response;
+    });
+    const client = new SpliitClient(group, 5_000, fetcher);
+    const error = await client
+      .query("groups.get", {}, z.object({ value: z.string() }))
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(SpliitAPIError);
+    expect(String(error)).toContain("redirected unexpectedly");
+    expect(String(error)).not.toContain("group-secret");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

@@ -10,7 +10,7 @@ import {
 } from "./config";
 import { validateEncryptionKey } from "./crypto";
 import { SpliitAPIError, SpliitClient } from "./spliit/client";
-import { groupResponseSchema } from "./spliit/schemas";
+import { balancesResponseSchema, groupResponseSchema } from "./spliit/schemas";
 import { SpliitState, StateError } from "./state";
 import { setupHtml, setupJavaScript } from "./setup";
 import { createSpliitMcpServer, type SpliitStateStore } from "./tools";
@@ -31,7 +31,7 @@ export default {
       return Response.json(
         {
           name: "spliit-mcp-cloudflare",
-          version: "1.0.0",
+          version: "1.0.1",
           mcpEndpoint: "/mcp",
           setupEndpoint: "/setup",
           authentication: "Bearer token required",
@@ -56,7 +56,11 @@ export default {
       return handleMcp(request, env, context);
     }
 
-    if (url.pathname === "/admin/groups" || url.pathname.startsWith("/admin/groups/")) {
+    if (
+      url.pathname === "/admin/probe" ||
+      url.pathname === "/admin/groups" ||
+      url.pathname.startsWith("/admin/groups/")
+    ) {
       return handleAdmin(request, env, url);
     }
 
@@ -107,6 +111,39 @@ async function handleAdmin(request: Request, env: Env, url: URL): Promise<Respon
   try {
     validateEnvironment(env);
     const state = await initializedState(env);
+    if (url.pathname === "/admin/probe" && request.method === "POST") {
+      const configured = await state.getActiveGroup();
+      assertAllowedUpstreamHost(
+        configured,
+        parseHostnameAllowlist(
+          env.ALLOWED_SPLIIT_HOSTNAMES,
+          "ALLOWED_SPLIIT_HOSTNAMES"
+        )
+      );
+      const client = new SpliitClient(configured, parseTimeout(env.SPLIIT_TIMEOUT_MS));
+      await Promise.all([
+        client.query(
+          "groups.get",
+          { groupId: configured.groupId },
+          groupResponseSchema
+        ),
+        client.query(
+          "groups.balances.list",
+          { groupId: configured.groupId },
+          balancesResponseSchema
+        )
+      ]);
+      return Response.json(
+        {
+          reachable: true,
+          groupReadable: true,
+          balancesReadable: true,
+          alias: configured.alias,
+          hostname: new URL(configured.webUrl).hostname
+        },
+        { headers: JSON_HEADERS }
+      );
+    }
     if (url.pathname === "/admin/groups" && request.method === "GET") {
       return Response.json({ groups: await state.listGroups() }, { headers: JSON_HEADERS });
     }

@@ -37,8 +37,10 @@ but the Worker can read them at runtime by design.
 
 The setup page uses no third-party assets, does not persist the admin token, and
 sets CSP, anti-framing, no-referrer, and no-store headers. The admin API validates
-and size-limits JSON, accepts only HTTPS group URLs, rejects redirects through
-the upstream client, and restricts outbound hosts.
+and size-limits JSON, accepts only HTTPS group URLs, rejects responses that the
+runtime redirected, and restricts initial outbound hosts. Cloudflare follows
+redirects before returning the response; therefore configure only Spliit hosts
+you trust with the group credential and mutation body.
 
 ## Write safety
 

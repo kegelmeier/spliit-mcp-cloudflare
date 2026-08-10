@@ -40,6 +40,11 @@ describe("Worker HTTP boundary", () => {
     const response = await SELF.fetch("https://worker.test/admin/groups");
     expect(response.status).toBe(401);
     expect(response.headers.get("WWW-Authenticate")).toContain("spliit-mcp-admin");
+
+    const probe = await SELF.fetch("https://worker.test/admin/probe", {
+      method: "POST"
+    });
+    expect(probe.status).toBe(401);
   });
 
   it("imports legacy groups through the authenticated admin boundary", async () => {

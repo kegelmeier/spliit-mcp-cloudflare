@@ -1,6 +1,6 @@
 {
   "name": "spliit-mcp-cloudflare",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Unofficial, secure, stateful Spliit MCP server for Cloudflare Workers",
   "license": "MIT",
   "private": true,
