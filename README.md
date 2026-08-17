@@ -38,14 +38,15 @@ Give a trusted coding agent terminal and browser access, then paste:
 ```text
 Install Spliit MCP from https://github.com/kegelmeier/spliit-mcp-cloudflare
 into my Cloudflare account. Read AGENTS.md and docs/agentic-install.md completely
-before acting. Keep writes disabled. Never ask me to paste a Spliit group URL
+before acting. Keep the default prepare/commit write workflow enabled, but do
+not invoke it during installation. Never ask me to paste a Spliit group URL
 into chat, a command argument, source control, or logs. Use Wrangler's
 interactive Cloudflare login. Generate separate 32-byte MCP and admin tokens
 and a 32-byte data-encryption key without displaying them. Deploy with an empty
 SPLIIT_GROUPS_JSON bootstrap value, validate /healthz and authentication, then
 give me the /setup URL so I can add group links privately in my browser.
 Configure one Streamable HTTP MCP connection with an environment-backed bearer
-token. Stop before enabling writes.
+token. Confirm the three write tools are present without invoking them.
 ```
 
 Existing 0.x deployments need the upgrade variant in
@@ -70,12 +71,15 @@ Existing 0.x deployments need the upgrade variant in
 | `get_expense` | Read-only | Read one active-group expense |
 | `list_categories` | Read-only | Read categories from the active Spliit host |
 | `list_activities` | Read-only | Read recent active-group activity |
-| `prepare_expense` | Opt-in | Validate and store an expiring group-bound draft |
-| `prepare_reimbursement` | Opt-in | Validate and store an expiring group-bound draft |
-| `commit_draft` | Opt-in | Commit a prepared draft exactly to its bound group |
+| `prepare_expense` | Enabled | Validate and store an expiring group-bound draft |
+| `prepare_reimbursement` | Enabled | Validate and store an expiring group-bound draft |
+| `commit_draft` | Enabled | Commit a prepared draft exactly to its bound group |
 
-Write tools are absent unless `WRITES_ENABLED` is set to `"true"` and the
-Worker is redeployed. There are no update or delete tools.
+Write tools are registered by default. Set `WRITES_ENABLED` to `"false"` and
+redeploy only when an intentionally read-only Worker is required. Tool
+availability is not permission to mutate: clients should always inspect a
+prepared preview and obtain separate approval before `commit_draft`. There are
+no update or delete tools.
 
 ## Configuration
 
@@ -95,7 +99,7 @@ Non-secret variables live in `wrangler.jsonc`:
 
 | Name | Default | Meaning |
 | --- | --- | --- |
-| `WRITES_ENABLED` | `false` | Registers prepare and commit tools when true |
+| `WRITES_ENABLED` | `true` | Registers prepare and commit tools; set false for read-only mode |
 | `SPLIIT_TIMEOUT_MS` | `15000` | Upstream timeout, 1,000–30,000 ms |
 | `DRAFT_TTL_SECONDS` | `600` | Draft lifetime, 60–3,600 seconds |
 | `ALLOWED_SPLIIT_HOSTNAMES` | `spliit.app` | Exact outbound Spliit hostname allowlist |

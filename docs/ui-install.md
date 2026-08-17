@@ -20,7 +20,7 @@ value `[]`. Do not add a group link to the deployment form on a new install.
 2. Sign in and authorize the GitHub connection.
 3. Choose a repository and Worker name.
 4. Add all four values as **Secret**, never plaintext variables.
-5. Leave `WRITES_ENABLED` `false` and
+5. Leave `WRITES_ENABLED` at its `true` default and
    `ALLOWED_SPLIIT_HOSTNAMES` as `spliit.app`.
 6. Deploy and wait for Workers Builds.
 7. Open `https://YOUR_WORKER_HOST/healthz`; it should report `ok`.
@@ -62,7 +62,8 @@ an incompatible client.
 ## 5. Verify
 
 Ask the client to list aliases, select one, and read its metadata. Confirm
-`prepare_expense`, `prepare_reimbursement`, and `commit_draft` are absent.
+`prepare_expense`, `prepare_reimbursement`, and `commit_draft` are present, but
+do not invoke them during installation.
 
 ## Existing 0.x deployment
 

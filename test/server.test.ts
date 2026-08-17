@@ -7,13 +7,17 @@ describe("Worker HTTP boundary", () => {
   it("publishes non-secret service metadata", async () => {
     const response = await SELF.fetch("https://worker.test/");
     expect(response.status).toBe(200);
-    const body = await response.text();
-    expect(body).toContain("spliit-mcp-cloudflare");
-    expect(body).not.toContain("group-secret");
+    const body = await response.json<{
+      name: string;
+      writesEnabled: boolean;
+    }>();
+    expect(body.name).toBe("spliit-mcp-cloudflare");
+    expect(body.writesEnabled).toBe(true);
+    expect(JSON.stringify(body)).not.toContain("group-secret");
     expect(response.headers.get("Cache-Control")).toBe("no-store");
   });
 
-  it("reports healthy configuration without contacting Spliit", async () => {
+  it("reports healthy default configuration without contacting Spliit", async () => {
     const response = await SELF.fetch("https://worker.test/healthz");
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ status: "ok" });

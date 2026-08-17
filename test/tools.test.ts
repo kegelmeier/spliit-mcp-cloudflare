@@ -28,7 +28,7 @@ const work: ConfiguredGroup = {
 };
 
 describe("MCP tool registration", () => {
-  it("exposes active-group read tools and selection by default", async () => {
+  it("supports an explicitly read-only tool set", async () => {
     const { names } = await listedTools(false);
     expect(names).toEqual([
       "get_balances",
@@ -42,7 +42,7 @@ describe("MCP tool registration", () => {
     ]);
   });
 
-  it("adds prepare/commit tools only when writes are explicitly enabled", async () => {
+  it("registers prepare/commit tools when writes are enabled", async () => {
     const { names } = await listedTools(true);
     expect(names).toContain("prepare_expense");
     expect(names).toContain("prepare_reimbursement");
@@ -54,11 +54,18 @@ describe("MCP tool registration", () => {
   it("commits a draft to its immutable group after the active group changes", async () => {
     const state = new MemoryState([holiday, work]);
     const mutationGroups: string[] = [];
+    const mutationExpenses: Record<string, unknown>[] = [];
     const fetcher: typeof fetch = async (input, init) => {
       const url = new URL(input instanceof Request ? input.url : input.toString());
       if (init?.method === "POST") {
-        const body = JSON.parse(String(init.body)) as { json: { groupId: string } };
+        const body = JSON.parse(String(init.body)) as {
+          json: {
+            groupId: string;
+            expenseFormValues: Record<string, unknown>;
+          };
+        };
         mutationGroups.push(body.json.groupId);
+        mutationExpenses.push(body.json.expenseFormValues);
         return trpcResponse({ expenseId: "expense-created" });
       }
       const inputValue = JSON.parse(url.searchParams.get("input") ?? "{}") as {
@@ -96,6 +103,8 @@ describe("MCP tool registration", () => {
         expenseId: "expense-created"
       });
       expect(mutationGroups).toEqual([holiday.groupId]);
+      expect(mutationExpenses[0]).not.toHaveProperty("originalAmount");
+      expect(mutationExpenses[0]).not.toHaveProperty("conversionRate");
 
       const replay = await client.callTool({
         name: "commit_draft",

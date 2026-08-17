@@ -10,8 +10,10 @@ deploying this project.
 2. Never print them to agent output, logs, chat, screenshots, fixtures, command
    arguments, commits, pull requests, or issues.
 3. Never put secrets in `wrangler.jsonc` or another tracked file.
-4. Keep `WRITES_ENABLED` `false` unless the user separately asks to enable it
-   after validating reads and reviewing prepare/commit behavior.
+4. Keep `WRITES_ENABLED` `true` by default. Set it to `false` only when the user
+   explicitly requests a read-only deployment. Tool availability is not write
+   approval: always present the prepared preview and obtain separate approval
+   before `commit_draft`.
 5. Do not enable request tracing. Spliit tRPC URLs can contain group IDs.
 6. Deploy only after the user authenticates the intended Cloudflare account or
    explicitly supplies a scoped CI credential through a secure channel.
@@ -80,5 +82,6 @@ an existing deployment or the import will be permanently marked complete.
 - active-group reads work through one MCP connection;
 - changing active group cannot redirect a prepared draft;
 - concurrent or replayed commits cannot create a second automatic mutation;
-- write tools are absent unless explicitly enabled;
+- write tools are present by default and absent only in explicit read-only mode;
+- no draft is committed without preview review and separate approval;
 - no secret value appears in source control or the final response.

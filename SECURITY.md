@@ -25,7 +25,9 @@ but the Worker can read them at runtime by design.
 
 ## Deployment checklist
 
-1. Keep `WRITES_ENABLED` `false` until reads are verified.
+1. `WRITES_ENABLED` defaults to `true`; set it to `false` only for an
+   intentionally read-only deployment. Tool availability never replaces the
+   separate preview and commit approval described below.
 2. Generate distinct MCP/admin tokens and one 64-character hexadecimal key.
 3. Upload all required values through a mode-0600 secrets file or Cloudflare's
    secret UI; never plaintext variables.
