@@ -35,7 +35,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "latest",
-    "@cloudflare/workers-types": "5.20260810.1",
+    "@cloudflare/workers-types": "5.20260814.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "typescript": "latest",
     "vitest": "latest",
