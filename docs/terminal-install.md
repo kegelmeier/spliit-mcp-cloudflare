@@ -89,7 +89,8 @@ codex mcp add spliit \
 
 Make `SPLIIT_MCP_TOKEN` available to the process that launches Codex through an
 OS secret manager or environment manager. Restart the client, call
-`list_groups`, `select_group`, then `get_group`. The write tools should be absent.
+`list_groups`, `select_group`, then `get_group`. Confirm `prepare_expense`,
+`prepare_reimbursement`, and `commit_draft` are present without invoking them.
 
 ## Upgrade from 0.x
 

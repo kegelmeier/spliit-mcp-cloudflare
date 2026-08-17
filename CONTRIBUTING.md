@@ -3,9 +3,10 @@
 Contributions are welcome.
 
 1. Never use a real Spliit group URL, ID, participant name, or expense in tests.
-2. Keep read access as the default and gate every mutation behind
-   active-group selection, draft claims, encryption boundaries, and
-   `WRITES_ENABLED`.
+2. Keep reads and the prepare/commit workflow available by default. Gate every
+   mutation behind active-group selection, draft claims, encryption boundaries,
+   preview review, and separate commit approval. Preserve
+   `WRITES_ENABLED=false` as an explicit read-only mode.
 3. Sanitize upstream errors and avoid logging request bodies or query URLs.
 4. Add regression tests for behavior and security boundaries.
 5. Run `npm ci` and `npm run check` before opening a pull request.

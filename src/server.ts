@@ -35,7 +35,7 @@ export default {
           mcpEndpoint: "/mcp",
           setupEndpoint: "/setup",
           authentication: "Bearer token required",
-          writesEnabled: parseBoolean(env.WRITES_ENABLED)
+          writesEnabled: parseWritesEnabled(env.WRITES_ENABLED)
         },
         { headers: JSON_HEADERS }
       );
@@ -85,7 +85,7 @@ async function handleMcp(
           state,
           timeoutMs: parseTimeout(env.SPLIIT_TIMEOUT_MS),
           draftTtlSeconds: parseDraftTtl(env.DRAFT_TTL_SECONDS),
-          writesEnabled: parseBoolean(env.WRITES_ENABLED)
+          writesEnabled: parseWritesEnabled(env.WRITES_ENABLED)
         }),
       {
         route: "/mcp",
@@ -246,11 +246,16 @@ function validateEnvironment(env: Env): void {
   for (const group of groups) assertAllowedUpstreamHost(group, allowedSpliitHosts);
   parseTimeout(env.SPLIIT_TIMEOUT_MS);
   parseDraftTtl(env.DRAFT_TTL_SECONDS);
+  parseWritesEnabled(env.WRITES_ENABLED);
   parseHostnameAllowlist(env.ALLOWED_HOSTNAMES, "ALLOWED_HOSTNAMES");
 }
 
-function parseBoolean(value: string): boolean {
-  return value.trim().toLowerCase() === "true";
+function parseWritesEnabled(value: string | undefined): boolean {
+  if (value === undefined || value.trim() === "") return true;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "true") return true;
+  if (normalized === "false") return false;
+  throw new Error("WRITES_ENABLED must be true or false");
 }
 
 function parseTimeout(value: string): number {

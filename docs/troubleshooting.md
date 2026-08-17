@@ -68,10 +68,10 @@ that use this personal Worker.
 
 ## Write tools are missing
 
-This is the safe default. They are registered only with
-`WRITES_ENABLED="true"`. Review [Security](../SECURITY.md#write-safety), change
-the variable, run `npm run check`, and redeploy. Do not enable writes merely to
-test connectivity.
+They are registered by default. Confirm `WRITES_ENABLED` is not explicitly set
+to `"false"`, review [Security](../SECURITY.md#write-safety), set it to `"true"`,
+run `npm run check`, and redeploy. Keep it false only for an intentionally
+read-only Worker.
 
 ## A draft expired
 

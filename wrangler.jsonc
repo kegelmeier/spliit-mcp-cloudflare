@@ -7,7 +7,7 @@
   "workers_dev": true,
   "preview_urls": false,
   "vars": {
-    "WRITES_ENABLED": "false",
+    "WRITES_ENABLED": "true",
     "SPLIIT_TIMEOUT_MS": "15000",
     "DRAFT_TTL_SECONDS": "600",
     "ALLOWED_HOSTNAMES": "",

@@ -53,7 +53,7 @@ the client lacks remote bearer-token support.
 1. Call `list_groups`.
 2. Call `select_group` only when the desired alias is not active.
 3. Call read tools without a group argument.
-4. If writes are enabled, call a prepare tool and inspect its preview.
+4. For a write, call a prepare tool and inspect its preview.
 5. Approve `commit_draft` with the returned draft ID.
 
 Selection persists across client reconnects and conversations because this is a

@@ -14,13 +14,14 @@ and participant IDs do not need to enter the agent conversation.
 ```text
 Install Spliit MCP from https://github.com/kegelmeier/spliit-mcp-cloudflare
 into my Cloudflare account. Read AGENTS.md and docs/agentic-install.md completely.
-Keep writes disabled. Never request or expose a Spliit group URL, bearer token,
+Keep the default prepare/commit write workflow enabled, but do not invoke it
+during installation. Never request or expose a Spliit group URL, bearer token,
 or encryption key in chat, output, command arguments, logs, or Git. Authenticate
 with Wrangler interactively. Generate separate random MCP/admin tokens and a
 32-byte hexadecimal data key without displaying them. Deploy with
 SPLIIT_GROUPS_JSON=[], validate the boundaries, give me the /setup URL, and
-configure one environment-authenticated Streamable HTTP MCP connection. Stop
-before enabling writes.
+configure one environment-authenticated Streamable HTTP MCP connection. Confirm
+the write tools are present without invoking them.
 ```
 
 ## Expected actions
@@ -39,6 +40,7 @@ before enabling writes.
    alias, group URL, and optional participant ID.
 9. Configure `<worker-url>/mcp` with an environment-backed MCP bearer token.
 10. Verify alias listing, selection, and one read; remove the temporary file.
+11. Confirm the three write tools are present without invoking them.
 
 The agent should never invoke a write tool during installation.
 
@@ -52,7 +54,7 @@ upgrade section first. Preserve the existing SPLIIT_GROUPS_JSON secret exactly
 and never print or re-enter it. Generate the new distinct ADMIN_TOKEN and
 DATA_ENCRYPTION_KEY securely, keep the existing MCP token, run all checks, and
 deploy the Durable Object migration. Confirm the old aliases imported into
-durable state before replacing SPLIIT_GROUPS_JSON with []. Do not enable writes
+durable state before replacing SPLIIT_GROUPS_JSON with []. Do not invoke writes
 or change the live Worker if any migration check fails.
 ```
 
@@ -77,23 +79,24 @@ Rotate MCP_AUTH_TOKEN securely, update my MCP client, confirm the old token is
 rejected, and never display either value. Do not change DATA_ENCRYPTION_KEY.
 ```
 
-Review and enable writes:
+Review the default write workflow:
 
 ```text
 Review the prepare_expense, prepare_reimbursement, and commit_draft contracts
 and regression tests. Explain previews, expiry, group binding, replay behavior,
-and ambiguous commits. If validation passes, set WRITES_ENABLED=true, redeploy,
-and confirm those three tools appear. Do not call commit_draft.
+and ambiguous commits. Confirm WRITES_ENABLED=true and those three tools are
+present. Do not call commit_draft without a separately approved preview.
 ```
 
 ## Acceptance checklist
 
 - Correct Cloudflare account and Worker URL
 - Four required secret names present; no values exposed
-- `WRITES_ENABLED=false`
+- `WRITES_ENABLED=true`
 - `/healthz` returns 200
 - `/mcp` and `/admin/groups` reject missing authorization
 - `/setup` has no-store and anti-framing headers
 - One MCP connection lists and selects remembered aliases
 - Active-group read returns expected data
+- Prepare and commit tools are present but not invoked during installation
 - No private value entered Git history or agent output
