@@ -1,7 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 
-import { aliasSchema, ConfigurationError, type ConfiguredGroup } from "./config";
+import {
+  aliasSchema,
+  assertAllowedUpstreamHost,
+  ConfigurationError,
+  parseConfiguredGroup,
+  type ConfiguredGroup
+} from "./config";
 import { SpliitAPIError, SpliitClient } from "./spliit/client";
 import { currencySpec, decimalToMinor, moneyOutput } from "./spliit/money";
 import {
@@ -11,6 +17,7 @@ import {
   expenseIdResponseSchema,
   expenseResponseSchema,
   expensesResponseSchema,
+  groupIdResponseSchema,
   groupResponseSchema,
   type Group,
   type Participant
@@ -39,6 +46,24 @@ const dateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD")
   .optional();
+const participantNamesSchema = z
+  .array(z.string().trim().min(2).max(50))
+  .min(1)
+  .max(100)
+  .superRefine((names, refinement) => {
+    const seen = new Set<string>();
+    for (const [index, name] of names.entries()) {
+      const normalized = name.toLocaleLowerCase("en");
+      if (seen.has(normalized)) {
+        refinement.addIssue({
+          code: "custom",
+          message: "Participant names must be unique",
+          path: [index]
+        });
+      }
+      seen.add(normalized);
+    }
+  });
 
 const readAnnotations = {
   readOnlyHint: true,
@@ -54,6 +79,13 @@ const stateAnnotations = {
   openWorldHint: false
 } as const;
 
+const groupManagementAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: true
+} as const;
+
 const writeAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
@@ -63,6 +95,7 @@ const writeAnnotations = {
 
 export interface SpliitStateStore {
   listGroups(): Promise<GroupRegistryItem[]>;
+  putGroup(group: ConfiguredGroup): Promise<void>;
   selectGroup(alias: string): Promise<GroupRegistryItem>;
   getActiveGroup(): Promise<ConfiguredGroup>;
   createDraft(
@@ -86,13 +119,14 @@ export interface ToolContext {
   timeoutMs: number;
   draftTtlSeconds: number;
   writesEnabled: boolean;
+  allowedSpliitHostnames: readonly string[];
   clientFactory?: (group: ConfiguredGroup, timeoutMs: number) => SpliitClient;
 }
 
 export function createSpliitMcpServer(context: ToolContext): McpServer {
   const server = new McpServer({
     name: "spliit-mcp-cloudflare",
-    version: "1.0.1"
+    version: "1.1.0"
   });
 
   server.registerTool(
@@ -118,6 +152,53 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
     },
     async ({ group }) =>
       runTool(async () => ({ selected: (await context.state.selectGroup(group)).alias }))
+  );
+
+  server.registerTool(
+    "add_group_from_link",
+    {
+      title: "Remember a Spliit group link",
+      description:
+        "Validate a Spliit group link, store it encrypted in this Cloudflare registry, and optionally make it active. The secret URL and group ID are never returned.",
+      inputSchema: z.object({
+        url: z.url().max(2_048).describe("Full HTTPS Spliit group link"),
+        alias: aliasSchema.optional(),
+        activeParticipant: participantReferenceSchema.optional(),
+        makeActive: z.boolean().default(true)
+      }),
+      annotations: groupManagementAnnotations
+    },
+    async ({ url, alias, activeParticipant, makeActive }) =>
+      runTool(async () => {
+        const reference = parseConfiguredGroup({ alias: alias ?? "imported-group", url });
+        assertAllowedUpstreamHost(reference, context.allowedSpliitHostnames);
+        const group = await getGroup(context, reference);
+        const selectedParticipant = activeParticipant === undefined
+          ? undefined
+          : resolveParticipant(participants(group), activeParticipant);
+        const rememberedAlias = await availableAlias(context.state, alias, group.name);
+        const configured: ConfiguredGroup = {
+          ...reference,
+          alias: rememberedAlias,
+          ...(selectedParticipant === undefined
+            ? {}
+            : { participantId: selectedParticipant.id })
+        };
+        await context.state.putGroup(configured);
+        if (makeActive) await context.state.selectGroup(rememberedAlias);
+        const stored = (await context.state.listGroups()).find(
+          (candidate) => candidate.alias === rememberedAlias
+        );
+        return {
+          added: true,
+          alias: rememberedAlias,
+          name: group.name,
+          currency: group.currencyCode ?? group.currency,
+          participantCount: participants(group).length,
+          activeParticipant: selectedParticipant?.name ?? null,
+          active: stored?.active ?? false
+        };
+      })
   );
 
   server.registerTool(
@@ -363,8 +444,129 @@ export function createSpliitMcpServer(context: ToolContext): McpServer {
       })
   );
 
-  if (context.writesEnabled) registerWriteTools(server, context);
+  if (context.writesEnabled) {
+    registerCreateGroupTool(server, context);
+    registerWriteTools(server, context);
+  }
   return server;
+}
+
+function registerCreateGroupTool(server: McpServer, context: ToolContext): void {
+  server.registerTool(
+    "create_group",
+    {
+      title: "Create and remember a Spliit group",
+      description:
+        "Create a group on the active group's Spliit server, or on spliit.app when no group exists. The new group is encrypted in this registry and made active; its secret URL and ID are never returned.",
+      inputSchema: z.object({
+        name: z.string().trim().min(2).max(50),
+        information: z.string().max(2_000).optional(),
+        currencyCode: z.string().trim().toUpperCase().length(3),
+        currencySymbol: z.string().trim().min(1).max(5).optional(),
+        participants: participantNamesSchema,
+        activeParticipant: z
+          .string()
+          .trim()
+          .min(2)
+          .max(50)
+          .describe("Exact name from participants; defaults to the first participant")
+          .optional(),
+        alias: aliasSchema.optional()
+      }),
+      annotations: groupManagementAnnotations
+    },
+    async (input) =>
+      runTool(async () => {
+        const target = await creationTarget(context);
+        assertAllowedUpstreamHost(target, context.allowedSpliitHostnames);
+        const activeParticipantName = input.activeParticipant ?? input.participants[0];
+        const matchingInputParticipant = input.participants.find(
+          (name) =>
+            name.toLocaleLowerCase("en") === activeParticipantName?.toLocaleLowerCase("en")
+        );
+        if (matchingInputParticipant === undefined) {
+          throw new ToolInputError(
+            "activeParticipant must exactly match one of the supplied participant names."
+          );
+        }
+        const rememberedAlias = await availableAlias(context.state, input.alias, input.name);
+        const created = await createClient(context, target).mutation(
+          "groups.create",
+          {
+            groupFormValues: {
+              name: input.name,
+              information: input.information ?? "",
+              currency: input.currencySymbol ?? currencySymbol(input.currencyCode),
+              currencyCode: input.currencyCode,
+              participants: input.participants.map((name) => ({ name }))
+            }
+          },
+          groupIdResponseSchema
+        );
+        const temporary = parseConfiguredGroup({
+          alias: rememberedAlias,
+          url: groupUrlOnSameServer(target, created.groupId)
+        });
+        assertAllowedUpstreamHost(temporary, context.allowedSpliitHostnames);
+        // Persist the capability before the follow-up metadata read. If that
+        // read is temporarily unavailable, the successful upstream creation
+        // remains recoverable through list_groups/get_group instead of being
+        // orphaned or accidentally retried as a second creation.
+        await context.state.putGroup(temporary);
+        await context.state.selectGroup(rememberedAlias);
+        let group: Group;
+        try {
+          group = await getGroup(context, temporary);
+        } catch (error) {
+          if (!(error instanceof SpliitAPIError)) throw error;
+          return {
+            created: true,
+            alias: rememberedAlias,
+            name: input.name,
+            currency: input.currencyCode,
+            participants: input.participants,
+            activeParticipant: null,
+            active: true,
+            detailsVerified: false
+          };
+        }
+        const allParticipants = participants(group);
+        const normalizedActiveParticipant = matchingInputParticipant.toLocaleLowerCase("en");
+        const selectedParticipant = allParticipants.find(
+          (participant) =>
+            participant.name.trim().toLocaleLowerCase("en") === normalizedActiveParticipant
+        );
+        if (selectedParticipant === undefined) {
+          return {
+            created: true,
+            alias: rememberedAlias,
+            name: group.name,
+            currency: group.currencyCode ?? group.currency,
+            participants: allParticipants.map((participant) => participant.name),
+            activeParticipant: null,
+            active: true,
+            detailsVerified: false
+          };
+        }
+        const configured: ConfiguredGroup = {
+          ...temporary,
+          alias: rememberedAlias,
+          participantId: selectedParticipant.id
+        };
+        await context.state.putGroup(configured);
+        await context.state.selectGroup(rememberedAlias);
+        return {
+          created: true,
+          alias: rememberedAlias,
+          name: group.name,
+          currency: group.currencyCode ?? group.currency,
+          participants: allParticipants.map((participant) => participant.name),
+          activeParticipant: selectedParticipant.name,
+          active: true,
+          detailsVerified: true
+        };
+      })
+  );
 }
 
 function registerWriteTools(server: McpServer, context: ToolContext): void {
@@ -583,6 +785,70 @@ function createClient(context: ToolContext, group: ConfiguredGroup): SpliitClien
   return context.clientFactory?.(group, context.timeoutMs) ?? new SpliitClient(group, context.timeoutMs);
 }
 
+async function creationTarget(context: ToolContext): Promise<ConfiguredGroup> {
+  if ((await context.state.listGroups()).length > 0) {
+    return context.state.getActiveGroup();
+  }
+  return parseConfiguredGroup({
+    alias: "spliit",
+    url: "https://spliit.app/groups/pending"
+  });
+}
+
+function groupUrlOnSameServer(group: ConfiguredGroup, groupId: string): string {
+  const url = new URL(group.webUrl);
+  const segments = url.pathname.split("/");
+  segments[segments.length - 1] = groupId;
+  url.pathname = segments.join("/");
+  return url.href;
+}
+
+async function availableAlias(
+  state: SpliitStateStore,
+  requested: string | undefined,
+  groupName: string
+): Promise<string> {
+  const aliases = new Set((await state.listGroups()).map((group) => group.alias));
+  if (requested !== undefined) {
+    if (aliases.has(requested)) {
+      throw new ToolInputError(`Group alias ${JSON.stringify(requested)} already exists.`);
+    }
+    return requested;
+  }
+  const base = aliasFromName(groupName);
+  for (let suffix = 1; suffix <= 999; suffix += 1) {
+    const ending = suffix === 1 ? "" : `-${suffix}`;
+    const candidate = `${base.slice(0, 40 - ending.length)}${ending}`;
+    if (!aliases.has(candidate)) return candidate;
+  }
+  throw new ToolInputError("Could not derive a unique group alias; provide alias explicitly.");
+}
+
+function aliasFromName(name: string): string {
+  const normalized = name
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLocaleLowerCase("en")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  const prefixed = /^[a-z]/.test(normalized) ? normalized : `group-${normalized}`;
+  return (prefixed === "group-" ? "group" : prefixed).slice(0, 40).replace(/-+$/g, "");
+}
+
+function currencySymbol(currencyCode: string): string {
+  try {
+    return new Intl.NumberFormat("en", {
+      style: "currency",
+      currency: currencyCode,
+      currencyDisplay: "narrowSymbol"
+    })
+      .formatToParts(0)
+      .find((part) => part.type === "currency")?.value ?? currencyCode;
+  } catch {
+    throw new ToolInputError("currencyCode must be a supported ISO 4217 currency code.");
+  }
+}
+
 async function getGroup(context: ToolContext, configured: ConfiguredGroup): Promise<Group> {
   const response = await createClient(context, configured).query(
     "groups.get",
@@ -613,11 +879,11 @@ function resolveParticipant(
   if (byName.length === 1 && byName[0] !== undefined) return byName[0];
   if (byName.length > 1) {
     throw new ToolInputError(
-      `Participant name ${JSON.stringify(reference)} is ambiguous; use the participant ID.`
+      "The participant name is ambiguous; use the participant ID from get_group."
     );
   }
   throw new ToolInputError(
-    `No participant matches ${JSON.stringify(reference)}. Call get_group first.`
+    "No participant matches that reference. Call get_group first."
   );
 }
 

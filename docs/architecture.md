@@ -11,6 +11,7 @@ Browser /setup -- ADMIN_TOKEN --> Worker admin boundary
                                       | validated group configuration
                                       v
 MCP client ------ MCP_AUTH_TOKEN --> Worker /mcp
+               add link/create group  |
                                       |
                                       | Durable Object RPC
                                       v
@@ -45,6 +46,12 @@ durable bootstrap marker is written. Later secret changes are not re-imported.
 Read tools resolve `getActiveGroup()` for every call. Selection is therefore
 shared across reconnects and MCP conversations that use this Worker.
 
+`add_group_from_link` applies the same URL parsing, outbound-host allowlist,
+upstream verification, encryption, and durable storage used by the admin
+boundary. `create_group` writes to the active group's Spliit host (or public
+`spliit.app` for an empty registry), persists the new capability, refreshes its
+participants, and selects it. Neither path returns the capability URL or ID.
+
 Write preparation resolves participants and amounts, creates the exact Spliit
 mutation input, and encrypts it together with the current group configuration.
 `commit_draft` never consults the active alias. It atomically claims the draft,
@@ -55,7 +62,8 @@ result. If execution becomes ambiguous after claiming, the draft stays locked.
 ## Trust boundaries
 
 - The MCP client knows the Worker URL, MCP token, aliases, and Spliit data
-  returned by tools.
+  returned by tools. It also sees a link explicitly supplied to
+  `add_group_from_link`, but the link is not returned or logged by the Worker.
 - The browser setup page receives an admin token and group link in memory.
 - Cloudflare executes code with all secrets and stores encrypted application
   data plus unavoidable metadata such as aliases and timestamps.

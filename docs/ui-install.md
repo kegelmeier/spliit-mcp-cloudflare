@@ -62,8 +62,10 @@ an incompatible client.
 ## 5. Verify
 
 Ask the client to list aliases, select one, and read its metadata. Confirm
-`prepare_expense`, `prepare_reimbursement`, and `commit_draft` are present, but
-do not invoke them during installation.
+`add_group_from_link`, `create_group`, `prepare_expense`,
+`prepare_reimbursement`, and `commit_draft` are present, but do not invoke them
+during installation. Prefer the setup page for imported links; use MCP link
+import only when you accept sending the credential through the client/model.
 
 ## Existing 0.x deployment
 

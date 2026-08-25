@@ -31,7 +31,7 @@ export default {
       return Response.json(
         {
           name: "spliit-mcp-cloudflare",
-          version: "1.0.1",
+          version: "1.1.0",
           mcpEndpoint: "/mcp",
           setupEndpoint: "/setup",
           authentication: "Bearer token required",
@@ -79,13 +79,18 @@ async function handleMcp(
     validateEnvironment(env);
     const state = (await initializedState(env)) as unknown as SpliitStateStore;
     const allowedHostnames = parseHostnameAllowlist(env.ALLOWED_HOSTNAMES, "ALLOWED_HOSTNAMES");
+    const allowedSpliitHostnames = parseHostnameAllowlist(
+      env.ALLOWED_SPLIIT_HOSTNAMES,
+      "ALLOWED_SPLIIT_HOSTNAMES"
+    );
     const handler = createMcpHandler(
       () =>
         createSpliitMcpServer({
           state,
           timeoutMs: parseTimeout(env.SPLIIT_TIMEOUT_MS),
           draftTtlSeconds: parseDraftTtl(env.DRAFT_TTL_SECONDS),
-          writesEnabled: parseWritesEnabled(env.WRITES_ENABLED)
+          writesEnabled: parseWritesEnabled(env.WRITES_ENABLED),
+          allowedSpliitHostnames
         }),
       {
         route: "/mcp",

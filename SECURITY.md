@@ -4,8 +4,11 @@
 
 Possession of a Spliit group link grants group access. Never commit a real URL,
 group ID, participant ID, bearer token, encryption key, draft ID, or private
-group content. Do not put those values in prompts, issues, logs, screenshots,
-tests, pull requests, or command arguments.
+group content. Do not put those values in issues, logs, screenshots, tests,
+pull requests, or command arguments. Prefer `/setup` so a link does not pass
+through an AI prompt. `add_group_from_link` is an explicit opt-in exception for
+users who accept that exposure to their authenticated MCP client/model; the
+Worker does not return or log the supplied link.
 
 If a group link is exposed, create a replacement group and migrate the data;
 the group ID cannot be rotated independently. If a bearer token is exposed,
@@ -32,7 +35,8 @@ but the Worker can read them at runtime by design.
 3. Upload all required values through a mode-0600 secrets file or Cloudflare's
    secret UI; never plaintext variables.
 4. Keep `ALLOWED_SPLIIT_HOSTNAMES` as narrow as possible.
-5. Add links only through `/setup`, over HTTPS, on the expected Worker host.
+5. Prefer `/setup` for links. Use `add_group_from_link` only after accepting its
+   MCP/model exposure; never allow the tool result to echo the credential.
 6. Do not enable request tracing; upstream query URLs contain group IDs.
 7. Run `npm run check` before deployment.
 8. Give each token only to software or people that need its specific role.
@@ -45,6 +49,13 @@ redirects before returning the response; therefore configure only Spliit hosts
 you trust with the group credential and mutation body.
 
 ## Write safety
+
+`create_group` performs one immediate upstream mutation and is available only
+when `WRITES_ENABLED` is true. MCP clients should require approval for it. The
+Worker persists the returned group capability before its follow-up detail read,
+so a temporary read failure does not orphan a successfully created group. The
+Spliit create procedure has no idempotency key; do not automatically retry an
+ambiguous creation.
 
 Preparation does not mutate Spliit. It stores an expiring encrypted draft bound
 to one group. Commit atomically claims it before contacting Spliit. Successful

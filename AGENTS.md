@@ -24,6 +24,11 @@ deploying this project.
 If a secret appears in output, stop, identify only the class of exposed value,
 and tell the user how to rotate or replace it without repeating it.
 
+`add_group_from_link` is an explicit user-opt-in path. When the user knowingly
+chooses it, accept the link only as that MCP tool's input and never repeat it in
+commentary, results, logs, commands, tests, commits, or issues. The default
+installation flow must still use `/setup` and must never ask for a link.
+
 ## New installation contract
 
 The user does not need to give the agent a Spliit group URL. Use this order:
@@ -80,6 +85,9 @@ an existing deployment or the import will be permanently marked complete.
 - unauthenticated MCP/admin requests are rejected;
 - setup stores a group without returning its URL/ID;
 - active-group reads work through one MCP connection;
+- MCP group-link import uses the same validation, allowlist, encryption, and
+  safe-output boundary as browser setup;
+- a successfully created group is durably remembered before follow-up reads;
 - changing active group cannot redirect a prepared draft;
 - concurrent or replayed commits cannot create a second automatic mutation;
 - write tools are present by default and absent only in explicit read-only mode;

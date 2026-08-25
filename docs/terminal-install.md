@@ -55,6 +55,11 @@ The link is validated against `ALLOWED_SPLIIT_HOSTNAMES`, checked against
 Spliit, encrypted, and stored. Add any further groups through the same page;
 there is no redeploy and no application-level group cap.
 
+After connecting the MCP client, `add_group_from_link` provides an opt-in
+alternative when you accept sending the link through that client/model. The
+tool validates and encrypts the link but never returns it. `create_group` can
+create and remember a new group without a pre-existing link.
+
 For a self-hosted Spliit server, add its exact hostname to the comma-separated
 `ALLOWED_SPLIIT_HOSTNAMES` value in `wrangler.jsonc`, run `npm run check`, and
 redeploy before using setup.
@@ -90,7 +95,8 @@ codex mcp add spliit \
 Make `SPLIIT_MCP_TOKEN` available to the process that launches Codex through an
 OS secret manager or environment manager. Restart the client, call
 `list_groups`, `select_group`, then `get_group`. Confirm `prepare_expense`,
-`prepare_reimbursement`, and `commit_draft` are present without invoking them.
+`prepare_reimbursement`, `commit_draft`, and `create_group` are present without
+invoking them.
 
 ## Upgrade from 0.x
 

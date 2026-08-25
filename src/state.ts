@@ -175,7 +175,9 @@ export class SpliitState extends DurableObject<Env> {
   async getActiveGroup(): Promise<ConfiguredGroup> {
     const alias = this.setting("active_group");
     if (alias === undefined) {
-      throw new StateError("No active group. Add a group in /setup, then call select_group.");
+      throw new StateError(
+        "No active group. Call add_group_from_link or use /setup; create_group is available when writes are enabled."
+      );
     }
     return this.getGroup(alias);
   }

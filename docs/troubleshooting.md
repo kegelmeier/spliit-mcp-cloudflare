@@ -36,13 +36,13 @@ Health does not contact Spliit or reveal the failing value.
 If uncertain, rotate the affected token. Token rotation does not change the
 stable `primary` Durable Object. Never rotate the data key as a token fix.
 
-## Setup rejects a group hostname
+## Setup or `add_group_from_link` rejects a group hostname
 
 Only exact hostnames in `ALLOWED_SPLIIT_HOSTNAMES` are permitted. The default is
 `spliit.app`. Add an explicit self-hosted name in `wrangler.jsonc`, run checks,
 and redeploy. Do not use a broad proxy host as a shortcut.
 
-## Setup cannot reach Spliit
+## Setup or MCP group import cannot reach Spliit
 
 Confirm the group opens in a browser and its server still exposes Spliit's tRPC
 interface. Responses that Cloudflare redirected are rejected rather than parsed
@@ -71,7 +71,15 @@ that use this personal Worker.
 They are registered by default. Confirm `WRITES_ENABLED` is not explicitly set
 to `"false"`, review [Security](../SECURITY.md#write-safety), set it to `"true"`,
 run `npm run check`, and redeploy. Keep it false only for an intentionally
-read-only Worker.
+read-only Worker. `create_group` follows this switch;
+`add_group_from_link` remains available because it only changes the encrypted
+Cloudflare registry.
+
+## A created group says its details were not verified
+
+The upstream creation succeeded and the Worker safely remembered the group, but
+the immediate follow-up read failed. Do not call `create_group` again. Call
+`list_groups`, select the returned alias if needed, and retry `get_group`.
 
 ## A draft expired
 

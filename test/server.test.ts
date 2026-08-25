@@ -9,9 +9,11 @@ describe("Worker HTTP boundary", () => {
     expect(response.status).toBe(200);
     const body = await response.json<{
       name: string;
+      version: string;
       writesEnabled: boolean;
     }>();
     expect(body.name).toBe("spliit-mcp-cloudflare");
+    expect(body.version).toBe("1.1.0");
     expect(body.writesEnabled).toBe(true);
     expect(JSON.stringify(body)).not.toContain("group-secret");
     expect(response.headers.get("Cache-Control")).toBe("no-store");

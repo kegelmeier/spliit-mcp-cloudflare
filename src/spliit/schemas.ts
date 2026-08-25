@@ -121,6 +121,9 @@ export const categoriesResponseSchema = z.object({
 });
 
 export const expenseIdResponseSchema = z.object({ expenseId: z.string() });
+export const groupIdResponseSchema = z.object({
+  groupId: z.string().regex(/^[A-Za-z0-9_-]{4,200}$/)
+});
 
 export type Participant = z.infer<typeof participantSchema>;
 export type Group = z.infer<typeof groupSchema>;

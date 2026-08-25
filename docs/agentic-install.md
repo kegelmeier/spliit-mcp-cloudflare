@@ -40,7 +40,8 @@ the write tools are present without invoking them.
    alias, group URL, and optional participant ID.
 9. Configure `<worker-url>/mcp` with an environment-backed MCP bearer token.
 10. Verify alias listing, selection, and one read; remove the temporary file.
-11. Confirm the three write tools are present without invoking them.
+11. Confirm `create_group` and the three expense write tools are present without
+    invoking them.
 
 The agent should never invoke a write tool during installation.
 
@@ -72,6 +73,14 @@ Open my Spliit MCP /setup page and let me enter the admin token and group link
 myself. Then verify only the safe alias appears through list_groups.
 ```
 
+Add a group through MCP after explicitly accepting link exposure:
+
+```text
+I accept that my authenticated MCP client and model will receive this Spliit
+link. Call add_group_from_link once, never repeat or echo the link, and report
+only the safe alias and verification result.
+```
+
 Rotate the MCP token:
 
 ```text
@@ -85,7 +94,8 @@ Review the default write workflow:
 Review the prepare_expense, prepare_reimbursement, and commit_draft contracts
 and regression tests. Explain previews, expiry, group binding, replay behavior,
 and ambiguous commits. Confirm WRITES_ENABLED=true and those three tools are
-present. Do not call commit_draft without a separately approved preview.
+present alongside create_group. Do not call commit_draft without a separately
+approved preview, and do not call create_group without explicit approval.
 ```
 
 ## Acceptance checklist
@@ -98,5 +108,6 @@ present. Do not call commit_draft without a separately approved preview.
 - `/setup` has no-store and anti-framing headers
 - One MCP connection lists and selects remembered aliases
 - Active-group read returns expected data
-- Prepare and commit tools are present but not invoked during installation
+- Group import/create and prepare/commit tools are present but not invoked
+  during installation
 - No private value entered Git history or agent output

@@ -51,10 +51,21 @@ the client lacks remote bearer-token support.
 ## Normal use
 
 1. Call `list_groups`.
-2. Call `select_group` only when the desired alias is not active.
-3. Call read tools without a group argument.
-4. For a write, call a prepare tool and inspect its preview.
-5. Approve `commit_draft` with the returned draft ID.
+2. To import an existing group through MCP, call `add_group_from_link` with its
+   full link and optionally an alias, active participant, and `makeActive`.
+3. To create a group, call `create_group` with its name, three-letter currency
+   code, participant names, and optional active participant/alias. Approve this
+   immediate upstream mutation when the MCP client asks.
+4. Call `select_group` only when the desired alias is not active.
+5. Call read tools without a group argument.
+6. For an expense or reimbursement, call a prepare tool and inspect its preview.
+7. Approve `commit_draft` with the returned draft ID.
+
+`add_group_from_link` intentionally sends the credential through the MCP client
+and model. Use `/setup` instead when that is not acceptable. Neither group tool
+returns the stored URL or group ID. A created group becomes active, and its
+first supplied participant is the default active participant unless another
+participant name is specified.
 
 Selection persists across client reconnects and conversations because this is a
 single personal registry. That convenience makes immutable drafts important:

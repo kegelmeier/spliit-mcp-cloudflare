@@ -12,9 +12,10 @@ A normal Spliit group link is sufficient. No modified Spliit backend or Spliit
 account is required.
 
 > [!IMPORTANT]
-> A Spliit group link grants access to its group. Add links only through the
-> protected `/setup` page. Never paste a real link into an AI prompt, commit,
-> issue, screenshot, or log.
+> A Spliit group link grants access to its group. The protected `/setup` page is
+> the safer import path because the link does not pass through an AI client.
+> `add_group_from_link` is available for users who explicitly accept that their
+> MCP client and model will receive the link. The tool never returns or logs it.
 
 ## Version 1 breaking change
 
@@ -31,6 +32,15 @@ Version 1 replaces per-call group arguments with a durable active-group model:
 Prepared drafts contain an immutable encrypted copy of their target. Selecting
 another group before `commit_draft` cannot redirect the write.
 
+## Version 1.1 group management
+
+- `add_group_from_link` accepts a normal group link, verifies it, encrypts it in
+  the Cloudflare registry, derives a unique alias when needed, and selects it;
+- `create_group` creates a group on the active group's Spliit server, or on
+  public `spliit.app` when the registry is empty, then remembers and selects it;
+- neither tool returns the secret group URL or ID;
+- `create_group` is registered only when `WRITES_ENABLED` is `"true"`.
+
 ## Install with an AI coding agent (recommended)
 
 Give a trusted coding agent terminal and browser access, then paste:
@@ -46,7 +56,7 @@ and a 32-byte data-encryption key without displaying them. Deploy with an empty
 SPLIIT_GROUPS_JSON bootstrap value, validate /healthz and authentication, then
 give me the /setup URL so I can add group links privately in my browser.
 Configure one Streamable HTTP MCP connection with an environment-backed bearer
-token. Confirm the three write tools are present without invoking them.
+token. Confirm the four write tools are present without invoking them.
 ```
 
 Existing 0.x deployments need the upgrade variant in
@@ -65,6 +75,8 @@ Existing 0.x deployments need the upgrade variant in
 | --- | --- | --- |
 | `list_groups` | Read-only | List aliases and show which one is active |
 | `select_group` | State change | Remember the active alias |
+| `add_group_from_link` | State change | Validate and remember a supplied group link |
+| `create_group` | Enabled | Create, remember, and select a new group |
 | `get_group` | Read-only | Read active-group metadata and participants |
 | `get_balances` | Read-only | Read balances and suggested reimbursements |
 | `list_expenses` | Read-only | Page and filter active-group expenses |
@@ -76,10 +88,11 @@ Existing 0.x deployments need the upgrade variant in
 | `commit_draft` | Enabled | Commit a prepared draft exactly to its bound group |
 
 Write tools are registered by default. Set `WRITES_ENABLED` to `"false"` and
-redeploy only when an intentionally read-only Worker is required. Tool
-availability is not permission to mutate: clients should always inspect a
-prepared preview and obtain separate approval before `commit_draft`. There are
-no update or delete tools.
+redeploy only when an intentionally read-only Worker is required; link import
+remains available because it changes only the encrypted registry. Tool
+availability is not permission to mutate: clients should require approval for
+`create_group`, and always inspect a prepared expense preview and obtain
+separate approval before `commit_draft`. There are no update or delete tools.
 
 ## Configuration
 
@@ -111,7 +124,9 @@ Self-hosted Spliit installations must be explicitly added to
 ## Security and persistence
 
 - `/mcp` and `/admin` use separate bearer tokens.
-- The MCP client receives aliases, never stored group URLs or IDs.
+- The MCP client receives aliases, never stored group URLs or IDs. If
+  `add_group_from_link` is invoked, the supplied link necessarily passes through
+  that one authenticated MCP request but is not returned.
 - Group records, draft payloads, and completed draft results are encrypted with
   AES-256-GCM and record-specific associated data before SQLite persistence.
 - The setup page is same-origin, non-cacheable, frame-protected, and stores the
@@ -139,8 +154,8 @@ and [platform limits](https://developers.cloudflare.com/workers/platform/limits/
 
 ## Compatibility and non-goals
 
-- Spliit has no account API for discovering every group; each link is added once
-  through setup.
+- Spliit has no account API for discovering every group; each existing link is
+  added once through setup or `add_group_from_link`.
 - The Worker calls Spliit's unofficial tRPC procedures. Upstream changes can
   require an update.
 - Attachments, recurring creation, custom splits, updates, and deletion are not
