@@ -29,7 +29,7 @@
     "check": "npm run types:check && npm run typecheck && npm test && npm run deploy:dry-run && npm run check:startup"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.3.0",
     "agents": "0.20.1",
     "zod": "4.4.3"
   },
